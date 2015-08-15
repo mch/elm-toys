@@ -4,6 +4,7 @@ import Text exposing (..)
 import Signal
 import Window
 import Debug exposing (..)
+import Array
 
 main = 
   Signal.map2 view Window.dimensions currentState
@@ -14,9 +15,6 @@ currentState = Debug.watch "state" (Signal.foldp update init boardClick.signal)
 
 type alias Row = Int
 type alias Col = Int
-
-
-type alias Position a = Maybe (a, a)
 
 
 boardClick = Signal.mailbox Nothing
@@ -32,11 +30,11 @@ type Piece = Empty
 
 type Action = PlayMove Int Int
 
-type alias Model = { board : List (List Piece),
+type alias Model = { board : Array.Array Piece,
                      lastClick : Maybe Action,
                      nextPlayer : Player }
 
-init = { board = List.repeat 3 (List.repeat 3 Empty), 
+init = { board = Array.repeat 9 Empty, 
          lastClick = Nothing,
          nextPlayer = X }
 
@@ -66,7 +64,9 @@ viewClick click =
   show click
 
 viewBoard board =
-  flow down (List.map2 viewRow [1, 2, 3] board)
+  flow down (List.map2 viewRow [1, 2, 3] [Array.toList (Array.slice 0 3 board), 
+                                          Array.toList (Array.slice 3 6 board), 
+                                          Array.toList (Array.slice 6 9 board)])
 
 viewRow : number -> List Piece -> Element
 viewRow rid moves =
