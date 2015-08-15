@@ -42,7 +42,15 @@ update : Maybe Action -> Model -> Model
 update a m = 
   case a of
     Just (PlayMove x y) -> { m | nextPlayer <- otherPlayer m.nextPlayer, 
-                                             lastClick <- a }
+                             board <- Array.set (y + 3 * x) (pieceForPlayer m.nextPlayer) m.board,
+                             lastClick <- a }
+
+-- Was it dumb to separate types of pieces and players? 
+pieceForPlayer : Player -> Piece
+pieceForPlayer p = 
+  case p of 
+    X -> PX
+    O -> PO
 
 
 otherPlayer : Player -> Player
@@ -64,13 +72,13 @@ viewClick click =
   show click
 
 viewBoard board =
-  flow down (List.map2 viewRow [1, 2, 3] [Array.toList (Array.slice 0 3 board), 
-                                          Array.toList (Array.slice 3 6 board), 
-                                          Array.toList (Array.slice 6 9 board)])
+  flow down (List.map2 viewRow [0..2] [Array.toList (Array.slice 0 3 board), 
+                                       Array.toList (Array.slice 3 6 board), 
+                                       Array.toList (Array.slice 6 9 board)])
 
 viewRow : number -> List Piece -> Element
 viewRow rid moves =
-  flow right (List.map2 (viewPiece rid) [1..3] moves)
+  flow right (List.map2 (viewPiece rid) [0..2] moves)
 
 
 viewPiece : number -> number -> Piece -> Element
