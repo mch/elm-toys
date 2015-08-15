@@ -1,32 +1,68 @@
 import Graphics.Element exposing (..)
+import Graphics.Input exposing (..)
+import Text exposing (..)
+import Signal
+import Window
 
-main = view
+
+main = 
+  Signal.map2 view Window.dimensions boardClick.signal
+
+
+type alias Row = Int
+type alias Col = Int
+
+
+type alias Position a = Maybe (a, a)
+
+
+boardClick = Signal.mailbox Nothing
+
 
 type Move = Empty
           | X
           | O
+
 
 model = [[X, O, X], 
          [Empty, X, O],
          [X, O, Empty]]
 
 
-view = 
-  (flow down (List.map viewRow model))
+view : (Int, Int) -> Position (number, number) -> Element
+view (wx, wy) click = 
+  container wx wy middle (flow down [viewClick click, viewBoard model])
 
-viewRow r = 
-  flow right (List.map viewMove r)
+viewClick click = 
+  show click
 
-viewMove : Move -> Element
-viewMove m = 
+viewBoard board =
+  flow down (List.map2 viewRow [1, 2, 3] model)
+
+viewRow : number -> List Move -> Element
+viewRow rid moves =
+  flow right (List.map2 (viewMove rid) [1..3] moves)
+
+
+viewMove : number -> number -> Move -> Element
+viewMove row col m = 
   case m of
     Empty -> 
-      show " "
+      styleMove " "
+        |> clickable (Signal.message boardClick.address (Just (row, col)))
 
 
     X ->
-      show "X"
+      styleMove "X"
+        |> clickable (Signal.message boardClick.address (Just (row, col)))
 
 
     O -> 
-      show "O"
+      styleMove "O"
+        |> clickable (Signal.message boardClick.address (Just (row, col)))
+
+
+styleMove m =
+  fromString m
+    |> centered
+    |> size 20 20
