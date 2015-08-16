@@ -10,7 +10,8 @@ import Random
 main = 
   Signal.map2 view Window.dimensions currentState
 
-currentState = Debug.watch "state" (Signal.foldp update init boardClick.signal)
+
+currentState = Signal.foldp update init boardClick.signal
 
 
 type alias Row = Int
@@ -18,6 +19,7 @@ type alias Col = Int
 
 
 boardClick = Signal.mailbox Nothing
+
 
 -- Player one, Player two
 type Player = NoOne | P1 | P2
@@ -30,6 +32,7 @@ type Piece = Empty
 
 type Action = PlayMove Int Int
 
+
 type alias Model = { board : Array.Array Piece,
                      lastClick : Maybe Action,
                      nextPlayer : Player,
@@ -37,12 +40,14 @@ type alias Model = { board : Array.Array Piece,
                      message : String, 
                      winner : Player }
 
+
 init = { board = Array.repeat 9 Empty, 
          lastClick = Nothing,
          nextPlayer = P1, 
-         seed = Random.initialSeed 1, 
+         seed = Random.initialSeed 1, -- need current time...
          message = "",
          winner = NoOne }
+
 
 update : Maybe Action -> Model -> Model
 update a m = 
@@ -63,12 +68,14 @@ applyMove a m x y =
     lastClick <- a,
     message <- "" }
 
+
 defaultMessage = "Sorry, that is not a valid move"
 messages = 
   Array.fromList [defaultMessage,
                   "Seriously, come on.",
                   "You can't play there!",
                   "Where did you learn to play Tic Tac Toe?"]
+
 
 ridiculePlayer m = 
   let numMessages = Array.length messages
@@ -91,6 +98,7 @@ otherPlayer p =
   case p of 
     P1 -> P2
     P2 -> P1
+
 
 view : (Int, Int) -> Model -> Element
 view (wx, wy) model = 
