@@ -32,8 +32,9 @@ type Piece = Empty
 
 type Action = PlayMove Int Int
 
+type alias Board = Array.Array Piece
 
-type alias Model = { board : Array.Array Piece,
+type alias Model = { board : Board,
                      lastClick : Maybe Action,
                      nextPlayer : Player,
                      seed : Random.Seed, 
@@ -75,7 +76,7 @@ applyMoveAndCheckWinner a m x y =
     if gameOver then { newState | message <- "Game over" } else newState
 
 
-isMoveValid : Array.Array Piece -> Int -> Int -> Bool
+isMoveValid : Board -> Int -> Int -> Bool
 isMoveValid board x y = Array.get (y + 3 * x) board == Just Empty
   
 
@@ -88,13 +89,15 @@ lines = [[0, 1, 2],
          [0, 4, 8],
          [2, 4, 6]]
 
-isGameOver : Array.Array Piece -> (Bool, Maybe Player)
+isGameOver : Board -> (Bool, Maybe Player)
 isGameOver board = 
   let 
     complete = Array.isEmpty (Array.filter (\x -> x == Empty) board)
     boardLines = List.map (\y -> (List.map (\x -> Maybe.withDefault Empty (Array.get x board)) y)) lines
-    xLines = Debug.watch "all xes" (List.map (List.foldl (\x y -> y && (x == X)) True) boardLines)
-    oLines = Debug.watch "all Oes" (List.map (List.foldl (\x y -> y && (x == O)) True) boardLines)
+    xLines = Debug.watch "all xes" (List.map (List.all (\x -> x == X)) boardLines)
+    oLines = Debug.watch "all Oes" (List.map (List.all (\x -> x == O)) boardLines)
+    xWins = Debug.watch "x wins" (List.any (\x -> x == True) xLines)
+    oWins = Debug.watch "o wins" (List.any (\x -> x == True) oLines)
   in
     (complete, Nothing)
 
