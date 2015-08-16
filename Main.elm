@@ -79,21 +79,25 @@ isMoveValid : Array.Array Piece -> Int -> Int -> Bool
 isMoveValid board x y = Array.get (y + 3 * x) board == Just Empty
   
 
-lines = [(0, 1, 2), 
-         (3, 4, 5),
-         (6, 7, 8),
-         (0, 3, 6), 
-         (1, 4, 7), 
-         (2, 5, 8), 
-         (0, 4, 8), 
-         (2, 4, 6)]
+lines = [[0, 1, 2],
+         [3, 4, 5],
+         [6, 7, 8],
+         [0, 3, 6],
+         [1, 4, 7],
+         [2, 5, 8],
+         [0, 4, 8],
+         [2, 4, 6]]
 
 isGameOver : Array.Array Piece -> (Bool, Maybe Player)
 isGameOver board = 
   let 
     complete = Array.isEmpty (Array.filter (\x -> x == Empty) board)
+    boardLines = List.map (\y -> (List.map (\x -> Maybe.withDefault Empty (Array.get x board)) y)) lines
+    xLines = Debug.watch "all xes" (List.map (List.foldl (\x y -> y && (x == X)) True) boardLines)
+    oLines = Debug.watch "all Oes" (List.map (List.foldl (\x y -> y && (x == O)) True) boardLines)
   in
     (complete, Nothing)
+
 
 
 applyMove a m x y = 
