@@ -46,7 +46,7 @@ update : Maybe Action -> Model -> Model
 update a m = 
   case a of
     Just (PlayMove x y) -> 
-      if (isMoveValid m.board x y) then (applyMove a m x y) else m
+      if (isMoveValid m.board x y) then (applyMove a m x y) else ridiculePlayer m
 
     Nothing -> m
 
@@ -82,7 +82,7 @@ otherPlayer p =
 
 view : (Int, Int) -> Model -> Element
 view (wx, wy) model = 
-  container wx wy middle (flow down [viewClick model.lastClick, 
+  container wx wy middle (flow down [viewMessage model.message, 
                                      viewNextPlayer model.nextPlayer,
                                      viewBoard model.board])
 
@@ -93,8 +93,8 @@ viewNextPlayer np =
     |> size 160 40
 
 
-viewClick click = 
-  toString click
+viewMessage message = 
+  message
     |> fromString 
     |> centered
     |> size 160 40
