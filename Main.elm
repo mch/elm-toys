@@ -52,12 +52,7 @@ update a m =
 
 
 isMoveValid : Array.Array Piece -> Int -> Int -> Bool
-isMoveValid board x y = 
-  case (Array.get (y + 3 * x) board) of
-    Just Empty -> True
-    Just X -> False
-    Just O -> False
-    Nothing -> False
+isMoveValid board x y = Array.get (y + 3 * x) board == Just Empty
   
 
 applyMove a m x y = 
