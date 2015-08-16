@@ -5,12 +5,12 @@ import Signal
 import Window
 import Debug exposing (..)
 import Array
+import Random
 
 main = 
   Signal.map2 view Window.dimensions currentState
 
 currentState = Debug.watch "state" (Signal.foldp update init boardClick.signal)
-
 
 
 type alias Row = Int
@@ -19,45 +19,71 @@ type alias Col = Int
 
 boardClick = Signal.mailbox Nothing
 
-
-type Player = X | O
+-- Player one, Player two
+type Player = P1 | P2
 
 
 type Piece = Empty
-          | PX
-          | PO
+          | X
+          | O
 
 
 type Action = PlayMove Int Int
 
 type alias Model = { board : Array.Array Piece,
                      lastClick : Maybe Action,
-                     nextPlayer : Player }
+                     nextPlayer : Player,
+                     seed : Random.Seed, 
+                     message : String}
 
 init = { board = Array.repeat 9 Empty, 
          lastClick = Nothing,
-         nextPlayer = X }
+         nextPlayer = P1, 
+         seed = Random.initialSeed 1, 
+         message = "" }
 
 update : Maybe Action -> Model -> Model
 update a m = 
   case a of
-    Just (PlayMove x y) -> { m | nextPlayer <- otherPlayer m.nextPlayer, 
-                             board <- Array.set (y + 3 * x) (pieceForPlayer m.nextPlayer) m.board,
-                             lastClick <- a }
+    Just (PlayMove x y) -> 
+      if (isMoveValid m.board x y) then (applyMove a m x y) else m
+
+    Nothing -> m
+
+
+isMoveValid : Array.Array Piece -> Int -> Int -> Bool
+isMoveValid board x y = 
+  case (Array.get (y + 3 * x) board) of
+    Just Empty -> True
+    Just X -> False
+    Just O -> False
+    Nothing -> False
+  
+
+applyMove a m x y = 
+  { m | nextPlayer <- otherPlayer m.nextPlayer, 
+    board <- Array.set (y + 3 * x) (pieceForPlayer m.nextPlayer) m.board,
+    lastClick <- a,
+    message <- "" }
+
+
+ridiculePlayer m = 
+  { m | message <- "Sorry, that is not a valid move." }
+
 
 -- Was it dumb to separate types of pieces and players? 
 pieceForPlayer : Player -> Piece
 pieceForPlayer p = 
   case p of 
-    X -> PX
-    O -> PO
+    P1 -> X
+    P2 -> O
 
 
 otherPlayer : Player -> Player
 otherPlayer p =
   case p of 
-    X -> O
-    O -> X
+    P1 -> P2
+    P2 -> P1
 
 view : (Int, Int) -> Model -> Element
 view (wx, wy) model = 
@@ -66,15 +92,24 @@ view (wx, wy) model =
                                      viewBoard model.board])
 
 viewNextPlayer np = 
-  show np
+  "Next player: " ++ toString np
+    |> fromString
+    |> centered
+    |> size 160 40
+
 
 viewClick click = 
-  show click
+  toString click
+    |> fromString 
+    |> centered
+    |> size 160 40
+
 
 viewBoard board =
   flow down (List.map2 viewRow [0..2] [Array.toList (Array.slice 0 3 board), 
                                        Array.toList (Array.slice 3 6 board), 
                                        Array.toList (Array.slice 6 9 board)])
+
 
 viewRow : number -> List Piece -> Element
 viewRow rid moves =
@@ -89,12 +124,12 @@ viewPiece row col p =
         |> clickable (Signal.message boardClick.address (Just (PlayMove row col)))
 
 
-    PX ->
+    X ->
       stylePiece "X"
         |> clickable (Signal.message boardClick.address (Just (PlayMove row col)))
 
 
-    PO -> 
+    O -> 
       stylePiece "O"
         |> clickable (Signal.message boardClick.address (Just (PlayMove row col)))
 
@@ -102,4 +137,4 @@ viewPiece row col p =
 stylePiece p =
   fromString p
     |> centered
-    |> size 20 20
+    |> size 40 40
