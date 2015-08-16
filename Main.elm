@@ -20,7 +20,7 @@ type alias Col = Int
 boardClick = Signal.mailbox Nothing
 
 -- Player one, Player two
-type Player = P1 | P2
+type Player = NoOne | P1 | P2
 
 
 type Piece = Empty
@@ -34,13 +34,15 @@ type alias Model = { board : Array.Array Piece,
                      lastClick : Maybe Action,
                      nextPlayer : Player,
                      seed : Random.Seed, 
-                     message : String}
+                     message : String, 
+                     winner : Player }
 
 init = { board = Array.repeat 9 Empty, 
          lastClick = Nothing,
          nextPlayer = P1, 
          seed = Random.initialSeed 1, 
-         message = "" }
+         message = "",
+         winner = NoOne }
 
 update : Maybe Action -> Model -> Model
 update a m = 
@@ -61,9 +63,19 @@ applyMove a m x y =
     lastClick <- a,
     message <- "" }
 
+defaultMessage = "Sorry, that is not a valid move"
+messages = 
+  Array.fromList [defaultMessage,
+                  "Seriously, come on.",
+                  "You can't play there!",
+                  "Where did you learn to play Tic Tac Toe?"]
 
 ridiculePlayer m = 
-  { m | message <- "Sorry, that is not a valid move." }
+  let numMessages = Array.length messages
+      (i, newseed) = Random.generate (Random.int 0 numMessages) m.seed
+      message = Maybe.withDefault defaultMessage (Array.get i messages)
+  in
+    { m | message <- message, seed <- newseed }
 
 
 -- Was it dumb to separate types of pieces and players? 
