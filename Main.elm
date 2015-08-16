@@ -59,11 +59,8 @@ update : Maybe Action -> Model -> Model
 update a m = 
   case a of
     Just (PlayMove x y) -> 
-      let 
-        (gameOver, winner) = isGameOver m.board
-      in
-        if | (isMoveValid m.board x y) -> (applyMoveAndCheckWinner a m x y)
-           | otherwise -> ridiculePlayer m
+      if | (isMoveValid m.board x y) -> (applyMoveAndCheckWinner a m x y)
+         | otherwise -> ridiculePlayer m
 
     Nothing -> m
 
@@ -71,7 +68,7 @@ update a m =
 applyMoveAndCheckWinner a m x y =
   let 
     newState = applyMove a m x y
-    (gameOver, winner) = isGameOver newState.board
+    gameOver = isGameOver newState.board m.nextPlayer
   in
     if gameOver then { newState | message <- "Game over" } else newState
 
@@ -89,17 +86,16 @@ lines = [[0, 1, 2],
          [0, 4, 8],
          [2, 4, 6]]
 
-isGameOver : Board -> (Bool, Maybe Player)
-isGameOver board = 
+isGameOver : Board -> Player -> Bool
+isGameOver board player =
   let 
     complete = Array.isEmpty (Array.filter (\x -> x == Empty) board)
     boardLines = List.map (\y -> (List.map (\x -> Maybe.withDefault Empty (Array.get x board)) y)) lines
-    xLines = Debug.watch "all xes" (List.map (List.all (\x -> x == X)) boardLines)
-    oLines = Debug.watch "all Oes" (List.map (List.all (\x -> x == O)) boardLines)
-    xWins = Debug.watch "x wins" (List.any (\x -> x == True) xLines)
-    oWins = Debug.watch "o wins" (List.any (\x -> x == True) oLines)
+    piece = pieceForPlayer player
+    playerLines = List.map (List.all (\x -> x == piece)) boardLines
+    playerWins = List.any (\x -> x == True) playerLines
   in
-    (complete, Nothing)
+    playerWins
 
 
 
