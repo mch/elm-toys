@@ -22,7 +22,7 @@ boardClick = Signal.mailbox Nothing
 
 
 -- Player one, Player two
-type Player = NoOne | P1 | P2
+type Player = P1 | P2
 
 
 type Piece = Empty
@@ -38,29 +38,63 @@ type alias Model = { board : Array.Array Piece,
                      nextPlayer : Player,
                      seed : Random.Seed, 
                      message : String, 
-                     winner : Player }
+                     winner : Maybe Player }
 
 
 init = { board = Array.repeat 9 Empty, 
          lastClick = Nothing,
          nextPlayer = P1, 
-         seed = Random.initialSeed 1, -- need current time...
+         seed = Random.initialSeed 1,
          message = "",
-         winner = NoOne }
+         winner = Nothing }
+{- 
+need current time for the seed... best for a seed seems to be to use
+JavaScript interop, but then need to embed Elm and it would not work
+well with elm-reactor etc.
+-} 
 
 
 update : Maybe Action -> Model -> Model
 update a m = 
   case a of
     Just (PlayMove x y) -> 
-      if (isMoveValid m.board x y) then (applyMove a m x y) else ridiculePlayer m
+      let 
+        (gameOver, winner) = isGameOver m.board
+      in
+        if | (isMoveValid m.board x y) -> (applyMoveAndCheckWinner a m x y)
+           | otherwise -> ridiculePlayer m
 
     Nothing -> m
+
+
+applyMoveAndCheckWinner a m x y =
+  let 
+    newState = applyMove a m x y
+    (gameOver, winner) = isGameOver newState.board
+  in
+    if gameOver then { newState | message <- "Game over" } else newState
 
 
 isMoveValid : Array.Array Piece -> Int -> Int -> Bool
 isMoveValid board x y = Array.get (y + 3 * x) board == Just Empty
   
+
+lines = [(0, 1, 2), 
+         (3, 4, 5),
+         (6, 7, 8),
+         (0, 3, 6), 
+         (1, 4, 7), 
+         (2, 5, 8), 
+         (0, 4, 8), 
+         (2, 4, 6)]
+
+isGameOver : Array.Array Piece -> (Bool, Maybe Player)
+isGameOver board = 
+  let 
+    complete = Array.isEmpty (Array.filter (\x -> x == Empty) board)
+  in
+    (complete, Nothing)
+
 
 applyMove a m x y = 
   { m | nextPlayer <- otherPlayer m.nextPlayer, 
