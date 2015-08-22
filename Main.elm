@@ -5,14 +5,22 @@ import Graphics.Element exposing (..)
 
 main : Signal Element
 main = 
-  Signal.map2 (Tictactoe.view boardClick.address) Window.dimensions currentState
-
+  Signal.map2 view Window.dimensions currentState
 
 currentState : Signal Tictactoe.Model
-currentState = Signal.foldp Tictactoe.update Tictactoe.init boardClick.signal
+currentState = Signal.foldp update init boardClick.signal
 
--- Should this level need to know about the Action type? 
---boardClick : Signal.Mailbox (Maybe Action)
+boardClick : Signal.Mailbox (Maybe Tictactoe.Action)
 boardClick = Signal.mailbox Nothing
 
+-- Model
+type alias Model = Tictactoe.Model
+init : Tictactoe.Model
+init = Tictactoe.init
 
+-- Update
+update : Maybe Tictactoe.Action -> Model -> Model
+update = Tictactoe.update
+
+-- View
+view = Tictactoe.view boardClick.address

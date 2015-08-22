@@ -1,4 +1,4 @@
-module Tictactoe (Model, view, update, init) where
+module Tictactoe (Model, Action, view, update, init) where
 
 import Signal exposing (Address, message)
 import Graphics.Element exposing (..)
