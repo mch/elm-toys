@@ -46,17 +46,15 @@ well with elm-reactor etc.
 -} 
 
 
-update : Maybe Action -> Model -> Model
+update : Action -> Model -> Model
 update a m = 
   case a of
-    Just (PlayMove x y) -> 
+    PlayMove x y -> 
       if | (isMoveValid m.board x y) -> (applyMoveAndCheckWinner a m x y)
          | otherwise -> ridiculePlayer m
 
-    Nothing -> m
 
-
-applyMoveAndCheckWinner : Maybe Action -> Model -> number -> number -> Model
+applyMoveAndCheckWinner : Action -> Model -> number -> number -> Model
 applyMoveAndCheckWinner a m x y =
   let 
     newState = applyMove a m x y
@@ -91,11 +89,11 @@ isGameOver board player =
     playerWins
 
 
-applyMove : Maybe Action -> Model -> number -> number -> Model
+applyMove : Action -> Model -> number -> number -> Model
 applyMove a m x y = 
   { m | nextPlayer <- otherPlayer m.nextPlayer, 
     board <- Array.set (y + 3 * x) (pieceForPlayer m.nextPlayer) m.board,
-    lastClick <- a,
+    lastClick <- Just a,
     message <- "" }
 
 
@@ -135,10 +133,10 @@ otherPlayer p =
     P2 -> P1
 
 
-view : Address (Maybe Action) -> (Int, Int) -> Model -> Element
+view : Address Action -> (Int, Int) -> Model -> Element
 view address (wx, wy) model = 
   container wx wy middle (flow down [viewMessage model.message, 
-                                     viewNextPlayer model.nextPlayer,
+                                     viewNextPlayer model.nextPlayer ,
                                      viewBoard address model.board])
 
 
@@ -158,34 +156,34 @@ viewMessage message =
     |> size 160 40
 
        
-viewBoard : Address (Maybe Action) -> Board -> Element
+viewBoard : Address Action -> Board -> Element
 viewBoard address board =
   flow down (List.map2 (viewRow address) [0..2] [Array.toList (Array.slice 0 3 board), 
                                                  Array.toList (Array.slice 3 6 board), 
                                                  Array.toList (Array.slice 6 9 board)])
 
 
-viewRow : Address (Maybe Action) -> number -> List Piece -> Element
+viewRow : Address Action -> number -> List Piece -> Element
 viewRow address rid moves =
   flow right (List.map2 (viewPiece address rid) [0..2] moves)
 
 
-viewPiece : Address (Maybe Action) -> number -> number -> Piece -> Element
+viewPiece : Address Action -> number -> number -> Piece -> Element
 viewPiece address row col p = 
   case p of
     Empty -> 
       stylePiece "_"
-        |> clickable (message address (Just (PlayMove row col)))
+        |> clickable (message address (PlayMove row col))
 
 
     X ->
       stylePiece "X"
-        |> clickable (message address (Just (PlayMove row col)))
+        |> clickable (message address (PlayMove row col))
 
 
     O -> 
       stylePiece "O"
-        |> clickable (message address (Just (PlayMove row col)))
+        |> clickable (message address (PlayMove row col))
 
 
 stylePiece : String -> Element
