@@ -25,7 +25,6 @@ type Action = PlayMove Int Int
 type alias Board = Array.Array Piece
 
 type alias Model = { board : Board,
-                     lastClick : Maybe Action,
                      nextPlayer : Player,
                      seed : Random.Seed, 
                      message : String, 
@@ -34,7 +33,6 @@ type alias Model = { board : Board,
 
 init : Model
 init = { board = Array.repeat 9 Empty, 
-         lastClick = Nothing,
          nextPlayer = P1, 
          seed = Random.initialSeed 1,
          message = "",
@@ -93,7 +91,6 @@ applyMove : Action -> Model -> number -> number -> Model
 applyMove a m x y = 
   { m | nextPlayer <- otherPlayer m.nextPlayer, 
     board <- Array.set (y + 3 * x) (pieceForPlayer m.nextPlayer) m.board,
-    lastClick <- Just a,
     message <- "" }
 
 
