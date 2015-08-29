@@ -1,6 +1,7 @@
 import Signal
 import Window
 import Tictactoe
+import Snake
 import Graphics.Element exposing (..)
 
 
@@ -22,23 +23,32 @@ address = Signal.forwardTo mailbox.address Just
 
 
 -- Main App itself
-type Action = Move Tictactoe.Action
+type Action = TictactoeMove Tictactoe.Action
+            | SnakeMove Snake.Input
 
-moveAddress = Signal.forwardTo address Move
+t3Address = Signal.forwardTo address TictactoeMove
+snakeAddress = Signal.forwardTo address SnakeMove
 
 -- Model
-type alias Model = { t3m : Tictactoe.Model }
+type Game = TictactoeGame | SnakeGame
+
+type alias Model = { currentGame: Game, t3m : Tictactoe.Model, s : Snake.Model }
 init : Model
-init = { t3m = Tictactoe.init }
+init = { currentGame = TictactoeGame, t3m = Tictactoe.init, s = Snake.init }
 
 
 -- Update
 update : Action -> Model -> Model
 update a m =
   case a of
-    Move ta -> { m | t3m <- Tictactoe.update ta m.t3m }
+    TictactoeMove ta -> { m | t3m <- Tictactoe.update ta m.t3m }
+    SnakeMove i -> { m | s <- Snake.update i m.s }
 
 
 -- View
 view : (Int, Int) -> Model -> Element
-view w m = Tictactoe.view moveAddress w m.t3m
+view w m = 
+  case m.currentGame of
+    TictactoeGame -> Tictactoe.view t3Address w m.t3m
+    SnakeGame -> Snake.view snakeAddress m.s
+
