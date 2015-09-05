@@ -15,13 +15,14 @@ currentState : Signal Model
 currentState = Signal.foldp
                (\(Just action) model -> update action model)
                init
-               mailbox.signal
+               inputs
 
 mailbox : Signal.Mailbox (Maybe Action)
 mailbox = Signal.mailbox Nothing
 
 address = Signal.forwardTo mailbox.address Just
 
+inputs = Signal.mergeMany (mailbox.signal :: List.map (Signal.map (\x -> Just (SnakeMove x))) Snake.inputs)
 
 -- Main App itself
 type Action = MenuSelection Toy
