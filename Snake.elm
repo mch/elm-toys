@@ -24,7 +24,7 @@ type Input = Keyboard {x: Int, y: Int}
 
 init : Model
 init = { message = "snake!"
-       , snake = [(0, 5), (0, 0)]
+       , snake = [(0, 1), (0, 0), (0, -1), (0, -2), (0, -3), (1, -3)]
        , direction = (0, 1)
        }
 
@@ -56,7 +56,11 @@ updateFromInput d m =
 moveSnake : Model -> Model
 moveSnake m =
   -- for now... need wrap around, wall death, etc.
-  { m | snake <- List.map (moveSnakePoint m.direction) m.snake }
+  let
+    firstPoint = Maybe.withDefault (0,0) (List.head m.snake)
+    newPoint = moveSnakePoint m.direction firstPoint
+  in
+    { m | snake <- newPoint :: List.take (List.length m.snake - 1) m.snake }
 
 
 moveSnakePoint (dx, dy) (x, y) =
@@ -91,9 +95,7 @@ border =
 snake : List Point -> Form
 snake s =
   let
-    initialListStyle = solid Color.red
-    style = { initialListStyle | width <- 10 }
-    collagePath = List.map (\(x, y) -> (x * 10, y * 10)) s
+    collagePoints = List.map (\(x, y) -> (x * 10, y * 10)) s
+    drawPoint p = move p (filled Color.red (rect 10 10))
   in
-    traced style (path collagePath)
-
+    group (List.map drawPoint collagePoints)
