@@ -47,7 +47,7 @@ update a m =
   case a of
     MenuSelection t -> { m | currentToy <- t }
     TictactoeMove ta -> { m | t3m <- Tictactoe.update ta m.t3m }
-    SnakeMove i -> { m | s <- Snake.update i m.s }
+    SnakeMove i -> if m.currentToy == SnakeGame then { m | s <- Snake.update i m.s } else m
 
 
 -- View

@@ -70,7 +70,7 @@ view a m =
 
 forms : Model -> List Form
 forms m = [board,
-           border,  
+           border,
            snake m.snake]
 
 board : Form
