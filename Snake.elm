@@ -27,6 +27,11 @@ boardSize = { width = 800, height = canvasSize.height - topStatsSize.height
             , x = 0, y = -topStatsSize.height }
 borderThickness = 10
 snakeSize = { width = 10, height = 10 }
+snakeFence = { maxX = 38 --(canvasSize.width - borderThickness) / snakeSize.width / 2
+             , minX = -38 -- (canvasSize.width - borderThickness) / snakeSize.width / 2
+             , maxY = 26 --(canvasSize.height - borderThickness - topStatsSize.height) / snakeSize.width / 2
+             , minY = -27 -- -((canvasSize.height - borderThickness) / snakeSize.width / 2) 
+             }
 
 
 init : Model
@@ -73,8 +78,17 @@ moveSnake m =
     { m | snake <- newPoint :: List.take (List.length m.snake - 1) m.snake }
 
 
+moveSnakePoint : { x: Float, y: Float} -> {x: Float, y: Float} -> {x:Float, y:Float}
 moveSnakePoint d p = 
-  { x = p.x + d.x, y = p.y + d.y}
+  { x = wrapAround (p.x + d.x) snakeFence.maxX snakeFence.minX
+  , y = wrapAround (p.y + d.y) snakeFence.maxY snakeFence.minY}
+
+
+wrapAround : Float -> Float -> Float -> Float
+wrapAround x max min =
+    if | x > max -> min
+       | x < min -> max
+       | otherwise -> x
 
 
 view : Address Input -> Model -> Element
