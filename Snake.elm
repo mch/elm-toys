@@ -23,7 +23,9 @@ type Input = Keyboard {x: Int, y: Int}
 
 canvasSize = { width = 800, height = 600 }
 topStatsSize = { width = 800, height = 20, x = 0, y = 290 }
-boardSize = { width = 800, height = 580 }
+boardSize = { width = 800, height = canvasSize.height - topStatsSize.height
+            , x = 0, y = -topStatsSize.height }
+borderThickness = 10
 snakeSize = { width = 10, height = 10 }
 
 
@@ -83,6 +85,7 @@ view a m =
 forms : Model -> List Form
 forms m = [board,
            border,
+           statusBar,
            snake m.snake]
 
 board : Form
@@ -91,19 +94,31 @@ board =
     |> filled Color.yellow
 
 
+statusBar : Form
+statusBar =
+  move (topStatsSize.x, topStatsSize.y) (filled Color.blue (rect topStatsSize.width topStatsSize.height))
+
+
 border : Form
 border =
   let
     initialLineStyle = solid Color.orange
     style = { initialLineStyle | width <- 10 }
+    top = { w = boardSize.width, h = borderThickness, x = 0, y = canvasSize.height / 2 - topStatsSize.height - borderThickness / 2}
+    bottom = { w = boardSize.width, h = borderThickness, x = 0, y = -(canvasSize.height / 2 - borderThickness / 2)}
+    left = { w = borderThickness, h = boardSize.height, x = -(canvasSize.width / 2 - borderThickness / 2), y = -topStatsSize.height / 2}
+    right = { w = borderThickness, h = boardSize.height, x = canvasSize.width / 2 - borderThickness / 2, y = -topStatsSize.height / 2}
+    borders = [top, bottom, left, right]
+    drawBorder b = move (b.x, b.y) (filled Color.orange (rect b.w b.h))
   in
-    outlined style (rect canvasSize.width canvasSize.height)
+    group (List.map drawBorder borders)
 
 
 snake : List Point -> Form
 snake s =
   let
-    collagePoints = List.map (\p -> { p | x <- p.x * 10, y <- p.y * 10}) s
-    drawPoint p = move (p.x, p.y) (filled Color.red (rect 10 10))
+    collagePoints = List.map (\p -> { p | x <- p.x * snakeSize.width
+                                    , y <- p.y * snakeSize.height}) s
+    drawPoint p = move (p.x, p.y) (filled Color.red (rect snakeSize.width snakeSize.height))
   in
     group (List.map drawPoint collagePoints)
