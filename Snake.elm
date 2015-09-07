@@ -61,6 +61,10 @@ init = { score = 0
 
 
 delta = Time.fps 30
+-- Taking inspiration from the Pong example, sample only on the delta
+-- to avoid extra inputs between steps (which would allow the snake
+-- to reverse on itself for instance). Need to change how the inputs
+-- are gathered together though.
 -- arrows = Signal.sampleOn delta (Keyboard.arrows)
 arrows = Keyboard.arrows
 
