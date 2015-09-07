@@ -7,19 +7,11 @@ import Signal exposing (Address, message)
 import Time
 import Keyboard
 import Debug
-
-type alias Point = { x: Float, y: Float }
-type alias Vector = { x: Float, y: Float }
-
-type alias Model =
- { message : String
- , snake : List Point
- , direction : Vector
- }
+import Random
 
 
 type Input = Keyboard {x: Int, y: Int}
-           | Tick
+           | Tick Time.Time
 
 canvasSize = { width = 800, height = 600 }
 topStatsSize = { width = 800, height = 20, x = 0, y = 290 }
@@ -34,14 +26,36 @@ snakeFence = { maxX = 38 --(canvasSize.width - borderThickness) / snakeSize.widt
              }
 
 
+type alias Point = { x: Float, y: Float }
+type alias Vector = { x: Float, y: Float }
+
+type alias Model =
+ { score : Int
+ , food : List Point
+ , timeSinceLastFood : Time.Time
+ , maxFood : Int
+ , snake : List Point
+ , direction : Vector
+ , seed : Random.Seed
+ , foodX : Random.Generator Float
+ , foodY : Random.Generator Float
+ }
+
+
 init : Model
-init = { message = "snake!"
+init = { score = 0
+       , food = []
+       , timeSinceLastFood = 0
+       , maxFood = 10
        , snake = [{ x = 0, y = 1}, { x = 0, y = 0}]
        , direction = { x = 0, y = 1}
+       , seed = Random.initialSeed 0
+       , foodX = Random.float snakeFence.minX snakeFence.maxX
+       , foodY = Random.float snakeFence.minY snakeFence.maxY
        }
 
 
-inputs = [ Signal.map (\tick -> Tick) (Time.fps 5)
+inputs = [ Signal.map (\tick -> Tick tick) (Time.fps 5)
          , Signal.map (\direction -> Keyboard direction) Keyboard.arrows ]
 
 
@@ -53,7 +67,7 @@ update i m =
 updateModel i m =
   case i of 
     Keyboard d -> updateFromInput d m
-    Tick -> moveSnake m
+    Tick t -> addFood t (snakeEats (moveSnake m))
 
 
 updateFromInput : {x: Int, y: Int} -> Model -> Model
@@ -91,6 +105,38 @@ wrapAround x max min =
        | otherwise -> x
 
 
+addFood : Time.Time -> Model -> Model
+addFood t m = 
+  let
+    (newFoodX, seed1) = Random.generate m.foodX m.seed
+    (newFoodY, seed2) = Random.generate m.foodY seed1
+    newFood = {x = toFloat (floor newFoodX), y = toFloat (floor newFoodY)}
+    updatedModel = { m | timeSinceLastFood <- m.timeSinceLastFood + t
+                   , seed <- seed2 }
+-- TODO ensure the new food does not overlap anything else on the
+-- board already, including the snake.
+  in
+  if List.length m.food < m.maxFood && (Time.inSeconds m.timeSinceLastFood) > 5 then
+    { updatedModel | food <- newFood :: updatedModel.food 
+    , timeSinceLastFood <- 0 }
+  else
+    updatedModel
+
+
+snakeEats : Model -> Model
+snakeEats m = 
+  let
+    snakeHead = Maybe.withDefault {x=0, y=0} (List.head m.snake)
+    eatenFood = List.filter (\f -> snakeHead == f) m.food
+  in
+    if List.length eatenFood > 0 then
+      { m | food <- List.filter (\f -> snakeHead /= f) m.food
+      , score <- m.score + 1000
+      }
+    else
+      m
+
+
 view : Address Input -> Model -> Element
 view a m =
   collage (round canvasSize.width) (round canvasSize.height) (forms m)
@@ -100,7 +146,8 @@ forms : Model -> List Form
 forms m = [board,
            border,
            statusBar,
-           snake m.snake]
+           viewSnake m.snake Color.red,
+           viewSnake m.food Color.white]
 
 board : Form
 board =
@@ -128,11 +175,11 @@ border =
     group (List.map drawBorder borders)
 
 
-snake : List Point -> Form
-snake s =
+viewSnake : List Point -> Color.Color -> Form
+viewSnake s c =
   let
     collagePoints = List.map (\p -> { p | x <- p.x * snakeSize.width
                                     , y <- p.y * snakeSize.height}) s
-    drawPoint p = move (p.x, p.y) (filled Color.red (rect snakeSize.width snakeSize.height))
+    drawPoint p = move (p.x, p.y) (filled c (rect snakeSize.width snakeSize.height))
   in
     group (List.map drawPoint collagePoints)
