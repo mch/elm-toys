@@ -32,6 +32,8 @@ type alias Vector = { x: Float, y: Float }
 
 type alias Model =
  { score : Int
+ , speed : Float
+ , timeSinceLastMove : Time.Time
  , food : List Point
  , timeSinceLastFood : Time.Time
  , maxFood : Int
@@ -45,6 +47,8 @@ type alias Model =
 
 init : Model
 init = { score = 0
+       , speed = 8 -- blocks per second
+       , timeSinceLastMove = 0
        , food = []
        , timeSinceLastFood = 0
        , maxFood = 10
@@ -56,8 +60,12 @@ init = { score = 0
        }
 
 
-inputs = [ Signal.map (\tick -> Tick tick) (Time.fps 5)
-         , Signal.map (\direction -> Keyboard direction) Keyboard.arrows ]
+delta = Time.fps 30
+-- arrows = Signal.sampleOn delta (Keyboard.arrows)
+arrows = Keyboard.arrows
+
+inputs = [ Signal.map (\tick -> Tick tick) delta
+         , Signal.map (\direction -> Keyboard direction) arrows ]
 
 
 update : Input -> Model -> Model
@@ -68,7 +76,7 @@ update i m =
 updateModel i m =
   case i of 
     Keyboard d -> updateFromInput d m
-    Tick t -> addFood t (snakeEats (moveSnake m))
+    Tick t -> addFood t (snakeEats (moveSnake t m))
 
 
 updateFromInput : {x: Int, y: Int} -> Model -> Model
@@ -83,14 +91,23 @@ updateFromInput d m =
       m
 
 
-moveSnake : Model -> Model
-moveSnake m =
+moveSnake : Time.Time -> Model -> Model
+moveSnake t m =
   -- for now... need wrap around, wall death, etc.
   let
+    timeSinceLastMove = t + m.timeSinceLastMove
+    m' = { m | timeSinceLastMove <- timeSinceLastMove }
     firstPoint = Maybe.withDefault {x=0,y=0} (List.head m.snake)
     newPoint = moveSnakePoint m.direction firstPoint
   in
-    { m | snake <- newPoint :: List.take (List.length m.snake - 1) m.snake }
+    if Time.inSeconds timeSinceLastMove > 1 / m.speed then
+      if List.length m.snake < m.score // 1000 then
+        { m' | snake <- newPoint :: m.snake, timeSinceLastMove <- 0 }
+      else
+        { m' | snake <- newPoint :: List.take (List.length m.snake - 1) m.snake
+        , timeSinceLastMove <- 0 }
+    else
+     m' 
 
 
 moveSnakePoint : { x: Float, y: Float} -> {x: Float, y: Float} -> {x:Float, y:Float}
@@ -117,7 +134,7 @@ addFood t m =
 -- TODO ensure the new food does not overlap anything else on the
 -- board already, including the snake.
   in
-  if List.length m.food < m.maxFood && (Time.inSeconds m.timeSinceLastFood) > 5 then
+  if List.length m.food < m.maxFood && (Time.inSeconds m.timeSinceLastFood) > 2 then
     { updatedModel | food <- newFood :: updatedModel.food 
     , timeSinceLastFood <- 0 }
   else
