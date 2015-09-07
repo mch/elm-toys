@@ -80,7 +80,9 @@ update i m =
 updateModel i m =
   case i of 
     Keyboard d -> updateFromInput d m
-    Tick t -> addFood t (snakeEats (moveSnake t m))
+    Tick t -> moveSnake t m
+              |> snakeEats
+              |> addFood t
 
 
 updateFromInput : {x: Int, y: Int} -> Model -> Model
