@@ -38,6 +38,7 @@ type alias Model =
  , timeSinceLastFood : Time.Time
  , maxFood : Int
  , snake : List Point
+ , newLength : Int
  , direction : Vector
  , seed : Random.Seed
  , foodX : Random.Generator Float
@@ -53,6 +54,7 @@ init = { score = 0
        , timeSinceLastFood = 0
        , maxFood = 10
        , snake = [{ x = 0, y = 1}, { x = 0, y = 0}]
+       , newLength = 2
        , direction = { x = 0, y = 1}
        , seed = Random.initialSeed 0
        , foodX = Random.float snakeFence.minX snakeFence.maxX
@@ -104,7 +106,7 @@ moveSnake t m =
     m' = { m | timeSinceLastMove <- timeSinceLastMove }
   in
     if Time.inSeconds timeSinceLastMove > 1 / m.speed then
-      let 
+      let
         m'' = stepSnakeAhead m'
       in
         { m'' | timeSinceLastMove <- 0 }
@@ -112,11 +114,11 @@ moveSnake t m =
       m'
 
 stepSnakeAhead : Model -> Model
-stepSnakeAhead m = 
+stepSnakeAhead m =
   let
     firstPoint = Maybe.withDefault {x=0,y=0} (List.head m.snake)
     newPoint = moveSnakePoint m.direction firstPoint
-    grow = List.length m.snake < m.score // 1000
+    grow = m.newLength > List.length m.snake
   in
     if grow then
       { m | snake <- newPoint :: m.snake }
@@ -164,6 +166,7 @@ snakeEats m =
     if List.length eatenFood > 0 then
       { m | food <- List.filter (\f -> snakeHead /= f) m.food
       , score <- m.score + 1000
+      , newLength <- m.newLength + 2
       }
     else
       m
