@@ -8,6 +8,7 @@ import Time
 import Keyboard
 import Debug
 import Random
+import Text
 
 
 type Input = Keyboard {x: Int, y: Int}
@@ -106,7 +107,7 @@ wrapAround x max min =
 
 
 addFood : Time.Time -> Model -> Model
-addFood t m = 
+addFood t m =
   let
     (newFoodX, seed1) = Random.generate m.foodX m.seed
     (newFoodY, seed2) = Random.generate m.foodY seed1
@@ -124,7 +125,7 @@ addFood t m =
 
 
 snakeEats : Model -> Model
-snakeEats m = 
+snakeEats m =
   let
     snakeHead = Maybe.withDefault {x=0, y=0} (List.head m.snake)
     eatenFood = List.filter (\f -> snakeHead == f) m.food
@@ -146,6 +147,7 @@ forms : Model -> List Form
 forms m = [board,
            border,
            statusBar,
+           viewScore m.score,
            viewSnake m.snake Color.red,
            viewSnake m.food Color.white]
 
@@ -183,3 +185,15 @@ viewSnake s c =
     drawPoint p = move (p.x, p.y) (filled c (rect snakeSize.width snakeSize.height))
   in
     group (List.map drawPoint collagePoints)
+
+
+viewScore : Int -> Form
+viewScore s =
+  let
+    titleText = Text.fromString "Score: "
+    scoreText = Text.fromString (toString s)
+  in
+    Text.append titleText scoreText
+      |> Text.color Color.white
+      |> text
+      |> move (300, 292)
