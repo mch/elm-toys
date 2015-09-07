@@ -99,21 +99,29 @@ updateFromInput d m =
 
 moveSnake : Time.Time -> Model -> Model
 moveSnake t m =
-  -- for now... need wrap around, wall death, etc.
   let
     timeSinceLastMove = t + m.timeSinceLastMove
     m' = { m | timeSinceLastMove <- timeSinceLastMove }
-    firstPoint = Maybe.withDefault {x=0,y=0} (List.head m.snake)
-    newPoint = moveSnakePoint m.direction firstPoint
   in
     if Time.inSeconds timeSinceLastMove > 1 / m.speed then
-      if List.length m.snake < m.score // 1000 then
-        { m' | snake <- newPoint :: m.snake, timeSinceLastMove <- 0 }
-      else
-        { m' | snake <- newPoint :: List.take (List.length m.snake - 1) m.snake
-        , timeSinceLastMove <- 0 }
+      let 
+        m'' = stepSnakeAhead m'
+      in
+        { m'' | timeSinceLastMove <- 0 }
     else
-     m' 
+      m'
+
+stepSnakeAhead : Model -> Model
+stepSnakeAhead m = 
+  let
+    firstPoint = Maybe.withDefault {x=0,y=0} (List.head m.snake)
+    newPoint = moveSnakePoint m.direction firstPoint
+    grow = List.length m.snake < m.score // 1000
+  in
+    if grow then
+      { m | snake <- newPoint :: m.snake }
+    else
+      { m | snake <- newPoint :: List.take (List.length m.snake - 1) m.snake }
 
 
 moveSnakePoint : { x: Float, y: Float} -> {x: Float, y: Float} -> {x:Float, y:Float}
