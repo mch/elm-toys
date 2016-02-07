@@ -13,7 +13,7 @@ delay = fps 30
 totalTime = foldp (\dt s -> s + dt) 0 delay
 clicks = foldp (\x s -> s + 1) 0 Mouse.clicks
 
-o = (,,) <~ totalTime ~ Mouse.position ~ clicks
+o = map3 (,,) totalTime Mouse.position clicks
 
 
 signals = merge 
