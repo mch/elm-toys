@@ -30,35 +30,43 @@ snakeFence = { maxX = 38 --(canvasSize.width - borderThickness) / snakeSize.widt
 type alias Point = { x: Float, y: Float }
 type alias Vector = { x: Float, y: Float }
 
+type State = Ready | Set | Go | Playing | Paused | Death | GameOver
+
 type alias Model =
- { score : Int
+ { state: State
+ , score : Int
+ , lives : Int
  , speed : Float
  , timeSinceLastMove : Time.Time
- , food : List Point
  , timeSinceLastFood : Time.Time
+ , timeToStateChng : Time.Time
  , maxFood : Int
- , snake : List Point
  , newLength : Int
  , direction : Vector
  , seed : Random.Seed
  , foodX : Random.Generator Float
  , foodY : Random.Generator Float
+ , food : List Point
+ , snake : List Point
  }
 
 
 init : Model
-init = { score = 0
+init = { state = Ready
+       , score = 0
+       , lives = 3
        , speed = 8 -- blocks per second
        , timeSinceLastMove = 0
-       , food = []
        , timeSinceLastFood = 0
+       , timeToStateChng = Time.second
        , maxFood = 10
-       , snake = [{ x = 0, y = 1}, { x = 0, y = 0}]
        , newLength = 2
        , direction = { x = 0, y = 1}
        , seed = Random.initialSeed 0
        , foodX = Random.float snakeFence.minX snakeFence.maxX
        , foodY = Random.float snakeFence.minY snakeFence.maxY
+       , food = []
+       , snake = []
        }
 
 
@@ -82,9 +90,37 @@ update i m =
 updateModel i m =
   case i of 
     Keyboard d -> updateFromInput d m
-    Tick t -> moveSnake t m
-              |> snakeEats
-              |> addFood t
+    Tick t -> updateForState t m
+
+
+updateForState t m =
+  case m.state of
+    Ready -> stateTransition t Set Time.second m
+    Set -> stateTransition t Go Time.second m
+    Go -> stateTransition t Playing Time.second m
+    Playing -> moveSnake t m
+            |> snakeEats
+            |> addFood t
+            |> checkForDeath
+    Paused -> m
+    Death -> stateTransition t (deadOrAlive m) Time.second m
+    GameOver -> stateTransition t Ready Time.second m
+
+
+deadOrAlive : Model -> State
+deadOrAlive m =
+  if m.lives <= 0 then GameOver else Playing
+
+
+stateTransition : Time.Time -> State -> Time.Time -> Model -> Model
+stateTransition t nextState nextStateDuration m =
+  let
+    timeRemaining = m.timeToStateChng - t
+  in
+    if timeRemaining <= 0 then
+      { m | state <- nextState, timeToStateChng <- nextStateDuration }
+    else
+      { m | timeToStateChng <- timeRemaining }
 
 
 updateFromInput : {x: Int, y: Int} -> Model -> Model
@@ -172,9 +208,35 @@ snakeEats m =
       m
 
 
+checkForDeath : Model -> Model
+checkForDeath m =
+  let
+    snakeHead = Maybe.withDefault {x=0, y=0} (List.head m.snake)
+    snakeTail = Maybe.withDefault [] (List.tail m.snake)
+    collidedWithSelf = List.length (List.filter (\s -> snakeHead == s) snakeTail) > 0
+  in
+    if collidedWithSelf then
+      { m | state <- Death, lives <- m.lives - 1, food <- [], snake <- [],
+        newLength <- 2, direction <- { x = 0, y = 1} }
+    else
+      m
+
+
 view : Address Input -> Model -> Element
 view a m =
-  collage (round canvasSize.width) (round canvasSize.height) (forms m)
+  case m.state of
+    Ready -> drawText "Ready!"
+    Set -> drawText "Set!"
+    Go -> drawText "Go!"
+    Playing -> collage (round canvasSize.width) (round canvasSize.height) (forms m)
+    Paused -> drawText "Paused!"
+    Death -> drawText "You Died!"
+    GameOver -> drawText "Game Over!"
+
+
+drawText : String -> Element
+drawText s =
+  collage (round canvasSize.width) (round canvasSize.height) [text (Text.fromString s)]
 
 
 forms : Model -> List Form
