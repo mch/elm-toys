@@ -13,9 +13,17 @@ main =
 
 currentState : Signal Model
 currentState = Signal.foldp
-               (\(Just action) model -> update action model)
+               maybeUpdate
                init
                inputs
+
+
+maybeUpdate a m =
+  case a of
+    Just action -> update action m
+
+    Nothing -> m
+
 
 mailbox : Signal.Mailbox (Maybe Action)
 mailbox = Signal.mailbox Nothing
@@ -45,9 +53,9 @@ init = { currentToy = Menu, t3m = Tictactoe.init, s = Snake.init }
 update : Action -> Model -> Model
 update a m =
   case a of
-    MenuSelection t -> { m | currentToy <- t }
-    TictactoeMove ta -> { m | t3m <- Tictactoe.update ta m.t3m }
-    SnakeMove i -> if m.currentToy == SnakeGame then { m | s <- Snake.update i m.s } else m
+    MenuSelection t -> { m | currentToy = t }
+    TictactoeMove ta -> { m | t3m = Tictactoe.update ta m.t3m }
+    SnakeMove i -> if m.currentToy == SnakeGame then { m | s = Snake.update i m.s } else m
 
 
 -- View

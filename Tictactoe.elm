@@ -48,17 +48,19 @@ update : Action -> Model -> Model
 update a m = 
   case a of
     PlayMove x y -> 
-      if | (isMoveValid m.board x y) -> (applyMoveAndCheckWinner a m x y)
-         | otherwise -> ridiculePlayer m
+      if (isMoveValid m.board x y) then
+        (applyMoveAndCheckWinner a m x y)
+      else
+        ridiculePlayer m
 
 
-applyMoveAndCheckWinner : Action -> Model -> number -> number -> Model
+applyMoveAndCheckWinner : Action -> Model -> Int -> Int -> Model
 applyMoveAndCheckWinner a m x y =
   let 
     newState = applyMove a m x y
     gameOver = isGameOver newState.board m.nextPlayer
   in
-    if gameOver then { newState | message <- "Game over" } else newState
+    if gameOver then { newState | message = "Game over" } else newState
 
 
 isMoveValid : Board -> Int -> Int -> Bool
@@ -87,11 +89,11 @@ isGameOver board player =
     playerWins
 
 
-applyMove : Action -> Model -> number -> number -> Model
-applyMove a m x y = 
-  { m | nextPlayer <- otherPlayer m.nextPlayer, 
-    board <- Array.set (y + 3 * x) (pieceForPlayer m.nextPlayer) m.board,
-    message <- "" }
+applyMove : Action -> Model -> Int -> Int -> Model
+applyMove a m x y =
+  { m | nextPlayer = otherPlayer m.nextPlayer,
+    board = Array.set (y + 3 * x) (pieceForPlayer m.nextPlayer) m.board,
+    message = "" }
 
 
 defaultMessage : String
@@ -112,7 +114,7 @@ ridiculePlayer m =
       (i, newseed) = Random.generate (Random.int 0 numMessages) m.seed
       message = Maybe.withDefault defaultMessage (Array.get i messages)
   in
-    { m | message <- message, seed <- newseed }
+    { m | message = message, seed = newseed }
 
 
 -- Was it dumb to separate types of pieces and players? 
@@ -160,12 +162,12 @@ viewBoard address board =
                                                  Array.toList (Array.slice 6 9 board)])
 
 
-viewRow : Address Action -> number -> List Piece -> Element
+viewRow : Address Action -> Int -> List Piece -> Element
 viewRow address rid moves =
   flow right (List.map2 (viewPiece address rid) [0..2] moves)
 
 
-viewPiece : Address Action -> number -> number -> Piece -> Element
+viewPiece : Address Action -> Int -> Int -> Piece -> Element
 viewPiece address row col p = 
   case p of
     Empty -> 

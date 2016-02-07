@@ -118,9 +118,9 @@ stateTransition t nextState nextStateDuration m =
     timeRemaining = m.timeToStateChng - t
   in
     if timeRemaining <= 0 then
-      { m | state <- nextState, timeToStateChng <- nextStateDuration }
+      { m | state = nextState, timeToStateChng = nextStateDuration }
     else
-      { m | timeToStateChng <- timeRemaining }
+      { m | timeToStateChng = timeRemaining }
 
 
 updateFromInput : {x: Int, y: Int} -> Model -> Model
@@ -130,7 +130,7 @@ updateFromInput d m =
     dotProduct = m.direction.x * direction.x + m.direction.y * direction.y
   in
     if (d.x /= 0 || d.y /= 0) && dotProduct == 0 then
-      { m | direction <- direction }
+      { m | direction = direction }
     else
       m
 
@@ -139,13 +139,13 @@ moveSnake : Time.Time -> Model -> Model
 moveSnake t m =
   let
     timeSinceLastMove = t + m.timeSinceLastMove
-    m' = { m | timeSinceLastMove <- timeSinceLastMove }
+    m' = { m | timeSinceLastMove = timeSinceLastMove }
   in
     if Time.inSeconds timeSinceLastMove > 1 / m.speed then
       let
         m'' = stepSnakeAhead m'
       in
-        { m'' | timeSinceLastMove <- 0 }
+        { m'' | timeSinceLastMove = 0 }
     else
       m'
 
@@ -157,9 +157,9 @@ stepSnakeAhead m =
     grow = m.newLength > List.length m.snake
   in
     if grow then
-      { m | snake <- newPoint :: m.snake }
+      { m | snake = newPoint :: m.snake }
     else
-      { m | snake <- newPoint :: List.take (List.length m.snake - 1) m.snake }
+      { m | snake = newPoint :: List.take (List.length m.snake - 1) m.snake }
 
 
 moveSnakePoint : { x: Float, y: Float} -> {x: Float, y: Float} -> {x:Float, y:Float}
@@ -170,9 +170,12 @@ moveSnakePoint d p =
 
 wrapAround : Float -> Float -> Float -> Float
 wrapAround x max min =
-    if | x > max -> min
-       | x < min -> max
-       | otherwise -> x
+    if x > max then
+      min
+    else if x < min then
+           max
+         else
+           x
 
 
 addFood : Time.Time -> Model -> Model
@@ -181,14 +184,14 @@ addFood t m =
     (newFoodX, seed1) = Random.generate m.foodX m.seed
     (newFoodY, seed2) = Random.generate m.foodY seed1
     newFood = {x = toFloat (floor newFoodX), y = toFloat (floor newFoodY)}
-    updatedModel = { m | timeSinceLastFood <- m.timeSinceLastFood + t
-                   , seed <- seed2 }
+    updatedModel = { m | timeSinceLastFood = m.timeSinceLastFood + t
+                   , seed = seed2 }
 -- TODO ensure the new food does not overlap anything else on the
 -- board already, including the snake.
   in
   if List.length m.food < m.maxFood && (Time.inSeconds m.timeSinceLastFood) > 2 then
-    { updatedModel | food <- newFood :: updatedModel.food 
-    , timeSinceLastFood <- 0 }
+    { updatedModel | food = newFood :: updatedModel.food 
+    , timeSinceLastFood = 0 }
   else
     updatedModel
 
@@ -200,9 +203,9 @@ snakeEats m =
     eatenFood = List.filter (\f -> snakeHead == f) m.food
   in
     if List.length eatenFood > 0 then
-      { m | food <- List.filter (\f -> snakeHead /= f) m.food
-      , score <- m.score + 1000
-      , newLength <- m.newLength + 2
+      { m | food = List.filter (\f -> snakeHead /= f) m.food
+      , score = m.score + 1000
+      , newLength = m.newLength + 2
       }
     else
       m
@@ -216,8 +219,8 @@ checkForDeath m =
     collidedWithSelf = List.length (List.filter (\s -> snakeHead == s) snakeTail) > 0
   in
     if collidedWithSelf then
-      { m | state <- Death, lives <- m.lives - 1, food <- [], snake <- [],
-        newLength <- 2, direction <- { x = 0, y = 1} }
+      { m | state = Death, lives = m.lives - 1, food = [], snake = [],
+        newLength = 2, direction = { x = 0, y = 1} }
     else
       m
 
@@ -262,7 +265,7 @@ border : Form
 border =
   let
     initialLineStyle = solid Color.orange
-    style = { initialLineStyle | width <- 10 }
+    style = { initialLineStyle | width = 10 }
     top = { w = boardSize.width, h = borderThickness, x = 0, y = canvasSize.height / 2 - topStatsSize.height - borderThickness / 2}
     bottom = { w = boardSize.width, h = borderThickness, x = 0, y = -(canvasSize.height / 2 - borderThickness / 2)}
     left = { w = borderThickness, h = boardSize.height, x = -(canvasSize.width / 2 - borderThickness / 2), y = -topStatsSize.height / 2}
@@ -276,8 +279,8 @@ border =
 viewSnake : List Point -> Color.Color -> Form
 viewSnake s c =
   let
-    collagePoints = List.map (\p -> { p | x <- p.x * snakeSize.width
-                                    , y <- p.y * snakeSize.height}) s
+    collagePoints = List.map (\p -> { p | x = p.x * snakeSize.width
+                                    , y = p.y * snakeSize.height}) s
     drawPoint p = move (p.x, p.y) (filled c (rect snakeSize.width snakeSize.height))
   in
     group (List.map drawPoint collagePoints)
