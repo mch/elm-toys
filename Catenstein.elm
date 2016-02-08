@@ -5,7 +5,9 @@ import Signal
 import Time
 import Keyboard
 
-import Vector exposing (..)
+import Math.Vector2 exposing (..)
+import VectorUtils exposing (..)
+
 
 type Tile
   = BlueFloor
@@ -110,7 +112,7 @@ playerView =
 
             
 type alias Model =
-  { position : Vector2
+  { position : Vec2
   , lookAngle : Float
   , speed : Float
   }
@@ -152,8 +154,8 @@ movement : { x : Int, y : Int} -> Model -> Model
 movement keys m =
   let
     newLookAngle = m.lookAngle - (degrees (toFloat keys.x))
-    velocity = mul (vrotate (vec2 1.0 0.0) newLookAngle) m.speed
-    newPosition = add m.position (mul velocity (toFloat keys.y))
+    velocity = Math.Vector2.scale m.speed (vrotate (vec2 1.0 0.0) newLookAngle)
+    newPosition = add m.position (Math.Vector2.scale (toFloat keys.y) velocity)
   in 
     { m | position = newPosition
         , lookAngle = newLookAngle
@@ -176,7 +178,7 @@ playerIcon =
 viewPlayer : Model -> Form
 viewPlayer m =
   playerIcon
-    |> move (m.position.x, m.position.y)
+    |> move (getX m.position, getY m.position)
     |> rotate m.lookAngle
 
 
@@ -291,7 +293,7 @@ buildAngleList start end increment =
     start :: (buildAngleList (start + increment) end increment)
 
 
-raycast : Vector2 -> Float -> Float -> Float
+raycast : Vec2 -> Float -> Float -> Float
 raycast position lookAngle angle =
   let
     -- Check outer boundaries only for now
@@ -302,8 +304,8 @@ raycast position lookAngle angle =
     horzGridLines = if lookingUp then [160] else [-160]
     vertGridLines = if lookingLeft then [-160] else [160]
 
-    horzDistances = List.map (\y -> (y - position.y) / sin angle) horzGridLines
-    vertDistances = List.map (\x -> (x - position.x) / cos angle) vertGridLines
+    horzDistances = List.map (\y -> (y - (getY position)) / sin angle) horzGridLines
+    vertDistances = List.map (\x -> (x - (getX position)) / cos angle) vertGridLines
 
     -- This distance will look "fisheye" and needs correction
     fisheyeDistance = Maybe.withDefault 0.0 (List.minimum (horzDistances ++ vertDistances))
