@@ -272,22 +272,22 @@ viewScene : Model -> Element
 viewScene m =
   let
     halfFov = playerView.fov / 2
-    start = m.lookAngle - halfFov
-    end = m.lookAngle + halfFov
-    increment = playerView.fov / playerView.planeWidth
+    start = m.lookAngle + halfFov
+    end = m.lookAngle - halfFov
+    increment = -1 * playerView.fov / playerView.planeWidth
     angles = buildAngleList start end increment
 
     distancesToWall = List.map (raycast m.position m.lookAngle) angles
     wallSliceHeights = List.map (\d -> 64 / d * 277) distancesToWall
     wallSlices = List.map (\h -> (filled Color.blue (rect 1 h))) wallSliceHeights
-    shiftedWallSlices = List.indexedMap (\x s -> moveX (toFloat x - 160) s) (List.reverse wallSlices)
+    shiftedWallSlices = List.indexedMap (\x s -> moveX (toFloat x - 160) s) wallSlices
   in
     collage 320 200 ([filled Color.black (rect 320 200)] ++ shiftedWallSlices)
 
 
 buildAngleList : Float -> Float -> Float -> List Float
 buildAngleList start end increment =
-  if start > end then
+  if start < end then
     []
   else
     start :: (buildAngleList (start + increment) end increment)
