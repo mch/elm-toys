@@ -31,8 +31,17 @@ type alias Circle =
   }
 
 
+type alias Target =
+  { color: Color
+  , position : ( Float, Float )
+  , size : Float
+  , detected : Bool
+  }
+      
+
 type alias Model =
   { circles : List Circle
+  , targets : List Target
   , previousTick : Time
   }
 
@@ -53,8 +62,16 @@ view address model =
 
     circles =
       List.map drawCircle model.circles
+
+    drawTarget t =
+      rect t.size t.size
+        |> filled blue
+        |> move t.position
+
+    targets =
+      List.map drawTarget (List.filter (\t -> t.detected) model.targets)
   in
-    collage collageWidth collageHeight circles
+    collage collageWidth collageHeight (circles ++ targets)
       |> fromElement
 
 
@@ -68,17 +85,46 @@ update a m =
       case a of
         Frame dt ->
           growCircles m dt
+            |> detectTargets
 
         Tick t ->
           growCircles m t
+            |> detectTargets
             |> updatePreviousTime t
 
         SeedCircle ( cx, cy ) ->
           seedCircle cx cy m
+
   in
-    ( Debug.watch "model" newModel, Effects.tick Tick )
+    ( newModel, Effects.tick Tick )
 
 
+detectTargets : Model -> Model
+detectTargets m =
+  let
+    targetDetected t c =
+      let
+        (cx, cy) = c.position
+        (tx, ty) = t.position
+        (dx, dy) = (abs (cx - tx), abs (cy - ty))
+        d = sqrt (dx^2 + dy^2)
+        min = c.radius - t.size
+        max = c.radius + t.size
+      in
+        d > min && d < max
+
+    detectTarget circles t =
+      let
+        detected = List.foldl (||) False (List.map (targetDetected t) circles)
+      in
+          { t | detected = detected }
+
+
+    updatedTargets = Debug.log "targets" (List.map (detectTarget m.circles) m.targets)
+  in
+    { m | targets = updatedTargets }
+
+      
 growCircles : Model -> Time -> Model
 growCircles m t =
   let
@@ -104,14 +150,14 @@ seedCircle cx cy m =
       10
 
     startingSpeed =
-      5
+      100
   in
     { m | circles = (Circle red startingRadius startingSpeed ( cx, cy )) :: m.circles }
 
 
 init : ( Model, Effects.Effects Action )
 init =
-  ( Model [] 0, Effects.tick Tick )
+  ( Model [] [Target blue (0, 0) 10 False] 0, Effects.tick Tick )
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
