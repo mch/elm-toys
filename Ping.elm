@@ -32,12 +32,12 @@ type alias Circle =
 
 
 type alias Target =
-  { color: Color
+  { color : Color
   , position : ( Float, Float )
   , size : Float
   , detected : Bool
   }
-      
+
 
 type alias Model =
   { circles : List Circle
@@ -94,7 +94,6 @@ update a m =
 
         SeedCircle ( cx, cy ) ->
           seedCircle cx cy m
-
   in
     ( newModel, Effects.tick Tick )
 
@@ -104,27 +103,39 @@ detectTargets m =
   let
     targetDetected t c =
       let
-        (cx, cy) = c.position
-        (tx, ty) = t.position
-        (dx, dy) = (abs (cx - tx), abs (cy - ty))
-        d = sqrt (dx^2 + dy^2)
-        min = c.radius - t.size
-        max = c.radius + t.size
+        ( cx, cy ) =
+          c.position
+
+        ( tx, ty ) =
+          t.position
+
+        ( dx, dy ) =
+          ( abs (cx - tx), abs (cy - ty) )
+
+        d =
+          sqrt (dx ^ 2 + dy ^ 2)
+
+        min =
+          c.radius - t.size
+
+        max =
+          c.radius + t.size
       in
         d > min && d < max
 
     detectTarget circles t =
       let
-        detected = List.foldl (||) False (List.map (targetDetected t) circles)
+        detected =
+          List.foldl (||) False (List.map (targetDetected t) circles)
       in
-          { t | detected = detected }
+        { t | detected = detected }
 
-
-    updatedTargets = Debug.log "targets" (List.map (detectTarget m.circles) m.targets)
+    updatedTargets =
+      List.map (detectTarget m.circles) m.targets
   in
     { m | targets = updatedTargets }
 
-      
+
 growCircles : Model -> Time -> Model
 growCircles m t =
   let
@@ -157,7 +168,7 @@ seedCircle cx cy m =
 
 init : ( Model, Effects.Effects Action )
 init =
-  ( Model [] [Target blue (0, 0) 10 False] 0, Effects.tick Tick )
+  ( Model [] [ Target blue ( 0, 0 ) 10 False ] 0, Effects.tick Tick )
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
