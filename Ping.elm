@@ -23,11 +23,12 @@ maxRadius =
   1000
 
 
-type alias Circle =
+type alias Ping =
   { color : Color
   , radius : Float
   , speed : Float
   , position : ( Float, Float )
+  , fadeSpeed : Float
   }
 
 
@@ -40,7 +41,7 @@ type alias Target =
 
 
 type alias Model =
-  { circles : List Circle
+  { pings : List Ping
   , targets : List Target
   , previousTick : Time
   }
@@ -49,126 +50,145 @@ type alias Model =
 type Action
   = Tick Time
   | Frame Time
-  | SeedCircle ( Float, Float )
+  | SeedPing ( Float, Float )
 
 
 view : Signal.Address Action -> Model -> Html
 view address model =
   let
-    drawCircle circle =
-      Graphics.Collage.circle circle.radius
-        |> outlined { defaultLine | color = circle.color }
-        |> move circle.position
+    drawPing ping =
+      Graphics.Collage.circle ping.radius
+        |> outlined { defaultLine | color = ping.color }
+        |> move ping.position
 
-    circles =
-      List.map drawCircle model.circles
+    pings =
+      List.map drawPing model.pings
 
-    drawTarget t =
-      rect t.size t.size
+    drawTarget target =
+      rect target.size target.size
         |> filled blue
-        |> move t.position
+        |> move target.position
 
     targets =
       List.map drawTarget (List.filter (\t -> t.detected) model.targets)
   in
-    collage collageWidth collageHeight (circles ++ targets)
+    collage collageWidth collageHeight (pings ++ targets)
       |> fromElement
 
 
 update : Action -> Model -> ( Model, Effects.Effects Action )
-update a m =
+update action model =
   let
     updatePreviousTime t m =
       { m | previousTick = t }
 
     newModel =
-      case a of
+      case action of
         Frame dt ->
-          growCircles m dt
+          growPings model dt
             |> detectTargets
 
         Tick t ->
-          growCircles m t
+          growPings model t
             |> detectTargets
             |> updatePreviousTime t
 
-        SeedCircle ( cx, cy ) ->
-          seedCircle cx cy m
+        SeedPing ( px, py ) ->
+          seedPing px py model
   in
     ( newModel, Effects.tick Tick )
 
 
 detectTargets : Model -> Model
-detectTargets m =
+detectTargets model =
   let
-    targetDetected t c =
+    targetDetected target ping =
       let
-        ( cx, cy ) =
-          c.position
+        ( px, py ) =
+          ping.position
 
         ( tx, ty ) =
-          t.position
+          target.position
 
         ( dx, dy ) =
-          ( abs (cx - tx), abs (cy - ty) )
+          ( abs (px - tx), abs (py - ty) )
 
         d =
           sqrt (dx ^ 2 + dy ^ 2)
 
         min =
-          c.radius - t.size
+          ping.radius - target.size
 
         max =
-          c.radius + t.size
+          ping.radius + target.size
       in
         d > min && d < max
 
-    detectTarget circles t =
+    detectTarget pings target =
       let
         detected =
-          List.foldl (||) False (List.map (targetDetected t) circles)
+          List.foldl (||) False (List.map (targetDetected target) pings)
+
       in
-        { t | detected = detected }
+        { target | detected = detected }
 
     updatedTargets =
-      List.map (detectTarget m.circles) m.targets
+      List.map (detectTarget model.pings) model.targets
   in
-    { m | targets = updatedTargets }
+    { model | targets = updatedTargets }
 
 
-growCircles : Model -> Time -> Model
-growCircles m t =
+growPings : Model -> Time -> Model
+growPings m t =
   let
     dt =
       (t - m.previousTick) / Time.second
 
-    growCircle c =
+    growPing c =
       { c | radius = c.radius + c.speed * dt }
 
-    newCircles =
-      List.map growCircle m.circles
+    newPings =
+      List.map growPing m.pings
 
-    keptCircles =
-      List.filter (\c -> c.radius < maxRadius) newCircles
+    keptPings =
+      List.filter (\c -> c.radius < maxRadius) newPings
   in
-    { m | circles = keptCircles }
+    { m | pings = keptPings }
 
 
-seedCircle : Float -> Float -> Model -> Model
-seedCircle cx cy m =
+seedPing : Float -> Float -> Model -> Model
+seedPing cx cy m =
   let
     startingRadius =
       10
 
     startingSpeed =
       100
-  in
-    { m | circles = (Circle red startingRadius startingSpeed ( cx, cy )) :: m.circles }
 
+    defaultFadeSpeed =
+      0
+  in
+    { m | pings = (Ping red startingRadius startingSpeed ( cx, cy ) defaultFadeSpeed) :: m.pings }
+
+
+seedSecondaryPing : Float -> Float -> Float -> Model -> Model
+seedSecondaryPing px py fadeSpeed model =
+  let
+    startingRadius =
+      1
+
+    speed =
+      100
+
+    fadeSpeed =
+      5
+  in
+    { model | pings = (Ping purple startingRadius speed ( px, py ) fadeSpeed) :: model.pings }
+        
 
 init : ( Model, Effects.Effects Action )
 init =
-  ( Model [] [ Target blue ( 0, 0 ) 10 False ] 0, Effects.tick Tick )
+  ( Model [] [ Target blue ( 0, 0 ) 20 False ] 0, Effects.tick Tick )
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
@@ -179,7 +199,7 @@ mouseToCollage ( mx, my ) ( wx, wy ) =
 
 inputs =
   Signal.map2 mouseToCollage Mouse.position Window.dimensions
-    |> Signal.map SeedCircle
+    |> Signal.map SeedPing
 
 
 sampledInputs =
