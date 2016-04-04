@@ -36,8 +36,12 @@ type alias Target =
   { color : Color
   , position : ( Float, Float )
   , size : Float
+
+  -- Properties related to drawing the target, not intrinsic to the
+  -- target... should be a different record all together?
   , detected : Bool
   , seedNewPing : Bool
+  , drawColor : Color
   }
 
 
@@ -67,11 +71,11 @@ view address model =
 
     drawTarget target =
       rect target.size target.size
-        |> filled blue
+        |> filled target.drawColor
         |> move target.position
 
     targets =
-      List.map drawTarget (List.filter (\t -> t.detected) model.targets)
+      List.map drawTarget model.targets
   in
     collage collageWidth collageHeight (pings ++ targets)
       |> fromElement
@@ -88,11 +92,13 @@ update action model =
         Frame dt ->
           growPings model dt
             |> fadePings dt
+            |> fadeTargets dt
             |> detectTargets
 
         Tick t ->
           growPings model t
             |> fadePings t
+            |> fadeTargets t
             |> detectTargets
             |> updatePreviousTime t
 
@@ -133,10 +139,17 @@ detectTargets model =
           List.foldl (||) False (List.map (targetDetected target) pings)
 
         firstDetection = detected && (not target.detected)
+
+        color =
+          if firstDetection then
+            target.color
+          else
+            target.drawColor
       in
         { target
           | detected = detected
           , seedNewPing = firstDetection
+          , drawColor = color
         }
 
     updatedTargets =
@@ -159,10 +172,32 @@ detectTargets model =
       in
         Ping color startingRadius speed position fadeSpeed
 
-          
+
     newPings = List.map (\t -> generatePing t.position) (List.filter (\t -> t.seedNewPing) updatedTargets)
   in
     { model | targets = updatedTargets, pings = model.pings ++ newPings }
+
+
+fadeColor : Color -> Float -> Color
+fadeColor color amount =
+  let
+    hslValues = Color.toHsl color
+  in
+    Color.hsla hslValues.hue hslValues.saturation hslValues.lightness (hslValues.alpha - amount)
+
+
+fadeTargets : Time -> Model -> Model
+fadeTargets t model =
+  let
+    dt =
+      (t - model.previousTick) / Time.second
+
+    fadeSpeed =
+      7
+
+    newTargets = List.map (\t -> { t | drawColor = fadeColor t.drawColor (fadeSpeed * dt) }) model.targets
+  in
+    { model | targets = newTargets }
 
 
 fadePings : Time -> Model -> Model
@@ -170,18 +205,12 @@ fadePings t model =
   let
     dt = (t - model.previousTick) / Time.second
 
-    fadeColor color amount =
-      let 
-        hslValues = Color.toHsl color
-      in
-        Color.hsla hslValues.hue hslValues.saturation hslValues.lightness (hslValues.alpha - amount)
-
     newPings = List.map (\p -> { p | color = fadeColor p.color (p.fadeSpeed * dt) }) model.pings
     alivePings = List.filter (\p -> (toHsl p.color).alpha > 0) newPings
   in
     { model | pings = alivePings }
 
-      
+
 growPings : Model -> Time -> Model
 growPings m t =
   let
@@ -217,7 +246,7 @@ seedPing cx cy m =
 
 init : ( Model, Effects.Effects Action )
 init =
-  ( Model [] [ Target blue ( 0, 0 ) 20 False False ] 0, Effects.tick Tick )
+  ( Model [] [ Target blue ( 0, 0 ) 20 False False blue ] 0, Effects.tick Tick )
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
