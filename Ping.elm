@@ -37,6 +37,7 @@ type alias Target =
   { color : Color
   , position : ( Float, Float )
   , size : Float
+  , value : Int
 
   -- Properties related to drawing the target, not intrinsic to the
   -- target... should be a different record all together?
@@ -49,6 +50,7 @@ type alias Target =
 type alias Model =
   { pings : List Ping
   , targets : List Target
+  , score : Int
   , previousTick : Time
   }
 
@@ -56,7 +58,7 @@ type alias Model =
 type Action
   = Tick Time
   | Frame Time
-  | SeedPing ( Float, Float )
+  | Click ( Float, Float )
 
 
 view : Signal.Address Action -> Model -> Html
@@ -77,9 +79,13 @@ view address model =
 
     targets =
       List.map drawTarget model.targets
+
+    gameBoard =
+      collage collageWidth collageHeight (pings ++ targets)
+        |> fromElement
   in
-    collage collageWidth collageHeight (pings ++ targets)
-      |> fromElement
+    div [] [ gameBoard
+           , p [] [Html.text ("Score: " ++ (toString model.score))]]
 
 
 adjustAlpha : Color -> Float -> Color
@@ -111,10 +117,37 @@ update action model =
             |> detectTargets
             |> updatePreviousTime t
 
-        SeedPing ( px, py ) ->
-          seedPing px py model
+        Click ( px, py ) ->
+          handleClick px py model
   in
     ( newModel, Effects.tick Tick )
+
+
+handleClick : Float -> Float -> Model -> Model
+handleClick px py model =
+  let
+    detectTarget t =
+      let
+        (tx, ty) =
+          t.position
+
+        halfSize =
+          t.size / 2
+
+        hit =
+          px > tx - halfSize && px < tx + halfSize && py > ty - halfSize && py < ty + halfSize
+      in
+        (hit, t)
+
+    identifiedTargets = List.map detectTarget model.targets
+    hitTargets = List.map snd (List.filter (\(hit, t) -> hit) identifiedTargets)
+    missedTargets = List.map snd (List.filter (\(hit, t) -> not hit) identifiedTargets)
+    points = List.foldl (\t points -> points + t.value) 0 hitTargets
+  in
+    if (List.length hitTargets > 0) then
+      { model | targets = missedTargets, score = model.score + points }
+    else
+      seedPing px py model
 
 
 detectTargets : Model -> Model
@@ -252,7 +285,7 @@ seedPing cx cy m =
 
 init : ( Model, Effects.Effects Action )
 init =
-  ( Model [] [ Target blue ( 0, 0 ) 20 False False 0 ] 0, Effects.tick Tick )
+  ( Model [] [ Target blue ( 0, 0 ) 20 100 False False 0 ] 0 0, Effects.tick Tick )
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
@@ -263,7 +296,7 @@ mouseToCollage ( mx, my ) ( wx, wy ) =
 
 inputs =
   Signal.map2 mouseToCollage Mouse.position Window.dimensions
-    |> Signal.map SeedPing
+    |> Signal.map Click
 
 
 sampledInputs =
