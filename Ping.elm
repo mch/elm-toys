@@ -37,6 +37,7 @@ type alias Target =
   , position : ( Float, Float )
   , size : Float
   , detected : Bool
+  , seedNewPing : Bool
   }
 
 
@@ -86,10 +87,12 @@ update action model =
       case action of
         Frame dt ->
           growPings model dt
+            |> fadePings dt
             |> detectTargets
 
         Tick t ->
           growPings model t
+            |> fadePings t
             |> detectTargets
             |> updatePreviousTime t
 
@@ -129,15 +132,56 @@ detectTargets model =
         detected =
           List.foldl (||) False (List.map (targetDetected target) pings)
 
+        firstDetection = detected && (not target.detected)
       in
-        { target | detected = detected }
+        { target
+          | detected = detected
+          , seedNewPing = firstDetection
+        }
 
     updatedTargets =
       List.map (detectTarget model.pings) model.targets
+
+
+    generatePing position  =
+      let
+        startingRadius =
+          1
+
+        speed =
+          100
+
+        fadeSpeed =
+          2
+
+        color =
+          purple
+      in
+        Ping color startingRadius speed position fadeSpeed
+
+          
+    newPings = List.map (\t -> generatePing t.position) (List.filter (\t -> t.seedNewPing) updatedTargets)
   in
-    { model | targets = updatedTargets }
+    { model | targets = updatedTargets, pings = model.pings ++ newPings }
 
 
+fadePings : Time -> Model -> Model
+fadePings t model =
+  let
+    dt = (t - model.previousTick) / Time.second
+
+    fadeColor color amount =
+      let 
+        hslValues = Color.toHsl color
+      in
+        Color.hsla hslValues.hue hslValues.saturation hslValues.lightness (hslValues.alpha - amount)
+
+    newPings = List.map (\p -> { p | color = fadeColor p.color (p.fadeSpeed * dt) }) model.pings
+    alivePings = List.filter (\p -> (toHsl p.color).alpha > 0) newPings
+  in
+    { model | pings = alivePings }
+
+      
 growPings : Model -> Time -> Model
 growPings m t =
   let
@@ -171,24 +215,9 @@ seedPing cx cy m =
     { m | pings = (Ping red startingRadius startingSpeed ( cx, cy ) defaultFadeSpeed) :: m.pings }
 
 
-seedSecondaryPing : Float -> Float -> Float -> Model -> Model
-seedSecondaryPing px py fadeSpeed model =
-  let
-    startingRadius =
-      1
-
-    speed =
-      100
-
-    fadeSpeed =
-      5
-  in
-    { model | pings = (Ping purple startingRadius speed ( px, py ) fadeSpeed) :: model.pings }
-        
-
 init : ( Model, Effects.Effects Action )
 init =
-  ( Model [] [ Target blue ( 0, 0 ) 20 False ] 0, Effects.tick Tick )
+  ( Model [] [ Target blue ( 0, 0 ) 20 False False ] 0, Effects.tick Tick )
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
