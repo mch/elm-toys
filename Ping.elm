@@ -29,6 +29,7 @@ type alias Ping =
   , speed : Float
   , position : ( Float, Float )
   , fadeSpeed : Float
+  , intensity : Float
   }
 
 
@@ -41,7 +42,7 @@ type alias Target =
   -- target... should be a different record all together?
   , detected : Bool
   , seedNewPing : Bool
-  , drawColor : Color
+  , intensity : Float
   }
 
 
@@ -63,7 +64,7 @@ view address model =
   let
     drawPing ping =
       Graphics.Collage.circle ping.radius
-        |> outlined { defaultLine | color = ping.color }
+        |> outlined { defaultLine | color = (adjustAlpha ping.color ping.intensity) }
         |> move ping.position
 
     pings =
@@ -71,7 +72,7 @@ view address model =
 
     drawTarget target =
       rect target.size target.size
-        |> filled target.drawColor
+        |> filled (adjustAlpha target.color target.intensity)
         |> move target.position
 
     targets =
@@ -79,6 +80,14 @@ view address model =
   in
     collage collageWidth collageHeight (pings ++ targets)
       |> fromElement
+
+
+adjustAlpha : Color -> Float -> Color
+adjustAlpha c i =
+  let
+    rgb = Color.toRgb c
+  in
+    Color.rgba rgb.red rgb.green rgb.blue i
 
 
 update : Action -> Model -> ( Model, Effects.Effects Action )
@@ -140,16 +149,16 @@ detectTargets model =
 
         firstDetection = detected && (not target.detected)
 
-        color =
-          if firstDetection then
-            target.color
+        intensity =
+          if detected then
+            1
           else
-            target.drawColor
+            target.intensity
       in
         { target
           | detected = detected
           , seedNewPing = firstDetection
-          , drawColor = color
+          , intensity = intensity
         }
 
     updatedTargets =
@@ -165,25 +174,17 @@ detectTargets model =
           100
 
         fadeSpeed =
-          2
+          1
 
         color =
           purple
       in
-        Ping color startingRadius speed position fadeSpeed
+        Ping color startingRadius speed position fadeSpeed 1
 
 
     newPings = List.map (\t -> generatePing t.position) (List.filter (\t -> t.seedNewPing) updatedTargets)
   in
     { model | targets = updatedTargets, pings = model.pings ++ newPings }
-
-
-fadeColor : Color -> Float -> Color
-fadeColor color amount =
-  let
-    hslValues = Color.toHsl color
-  in
-    Color.hsla hslValues.hue hslValues.saturation hslValues.lightness (hslValues.alpha - amount)
 
 
 fadeTargets : Time -> Model -> Model
@@ -193,9 +194,10 @@ fadeTargets t model =
       (t - model.previousTick) / Time.second
 
     fadeSpeed =
-      7
+      3
 
-    newTargets = List.map (\t -> { t | drawColor = fadeColor t.drawColor (fadeSpeed * dt) }) model.targets
+    newTargets =
+      List.map (\t -> { t | intensity = t.intensity - fadeSpeed * dt }) model.targets
   in
     { model | targets = newTargets }
 
@@ -203,10 +205,14 @@ fadeTargets t model =
 fadePings : Time -> Model -> Model
 fadePings t model =
   let
-    dt = (t - model.previousTick) / Time.second
+    dt =
+      (t - model.previousTick) / Time.second
 
-    newPings = List.map (\p -> { p | color = fadeColor p.color (p.fadeSpeed * dt) }) model.pings
-    alivePings = List.filter (\p -> (toHsl p.color).alpha > 0) newPings
+    newPings =
+      List.map (\p -> { p | intensity = p.intensity - p.fadeSpeed * dt }) model.pings
+
+    alivePings =
+      List.filter (\p -> p.intensity > 0) newPings
   in
     { model | pings = alivePings }
 
@@ -241,12 +247,12 @@ seedPing cx cy m =
     defaultFadeSpeed =
       0
   in
-    { m | pings = (Ping red startingRadius startingSpeed ( cx, cy ) defaultFadeSpeed) :: m.pings }
+    { m | pings = (Ping red startingRadius startingSpeed ( cx, cy ) defaultFadeSpeed 1) :: m.pings }
 
 
 init : ( Model, Effects.Effects Action )
 init =
-  ( Model [] [ Target blue ( 0, 0 ) 20 False False blue ] 0, Effects.tick Tick )
+  ( Model [] [ Target blue ( 0, 0 ) 20 False False 0 ] 0, Effects.tick Tick )
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
