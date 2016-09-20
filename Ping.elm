@@ -1,8 +1,9 @@
-module Main (..) where
+module Main exposing (..) 
 
-import Graphics.Collage exposing (..)
-import StartApp exposing (start)
-import Effects exposing (tick, none)
+import AnimationFrame exposing (..)
+import Collage exposing (..)
+import Element exposing (toHtml)
+import Html.App as Html
 import Task exposing (Task)
 import Color exposing (..)
 import Time exposing (..)
@@ -55,17 +56,17 @@ type alias Model =
   }
 
 
-type Action
+type Msg
   = Tick Time
   | Frame Time
   | Click ( Float, Float )
 
 
-view : Signal.Address Action -> Model -> Html
-view address model =
+view : Model -> Html Msg
+view model =
   let
     drawPing ping =
-      Graphics.Collage.circle ping.radius
+      Collage.circle ping.radius
         |> outlined { defaultLine | color = (adjustAlpha ping.color ping.intensity) }
         |> move ping.position
 
@@ -82,7 +83,7 @@ view address model =
 
     gameBoard =
       collage collageWidth collageHeight (pings ++ targets)
-        |> fromElement
+        |> toHtml
   in
     div [] [ gameBoard
            , p [] [Html.text ("Score: " ++ (toString model.score))]]
@@ -96,7 +97,7 @@ adjustAlpha c i =
     Color.rgba rgb.red rgb.green rgb.blue i
 
 
-update : Action -> Model -> ( Model, Effects.Effects Action )
+update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
   let
     updatePreviousTime t m =
@@ -120,7 +121,7 @@ update action model =
         Click ( px, py ) ->
           handleClick px py model
   in
-    ( newModel, Effects.tick Tick )
+    ( newModel, Cmd.none )
 
 
 handleClick : Float -> Float -> Model -> Model
@@ -143,6 +144,8 @@ handleClick px py model =
     hitTargets = List.map snd (List.filter (\(hit, t) -> hit) identifiedTargets)
     missedTargets = List.map snd (List.filter (\(hit, t) -> not hit) identifiedTargets)
     points = List.foldl (\t points -> points + t.value) 0 hitTargets
+
+    -- TODO visual and audio reward for hitting a target
   in
     if (List.length hitTargets > 0) then
       { model | targets = missedTargets, score = model.score + points }
@@ -283,9 +286,9 @@ seedPing cx cy m =
     { m | pings = (Ping red startingRadius startingSpeed ( cx, cy ) defaultFadeSpeed 1) :: m.pings }
 
 
-init : ( Model, Effects.Effects Action )
+init : ( Model, Cmd Msg )
 init =
-  ( Model [] [ Target blue ( 0, 0 ) 20 100 False False 0 ] 0 0, Effects.tick Tick )
+  ( Model [] [ Target blue ( 0, 0 ) 20 100 False False 0 ] 0 0, Cmd.none )
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
@@ -294,32 +297,20 @@ mouseToCollage ( mx, my ) ( wx, wy ) =
   ( toFloat (mx - (collageWidth // 2)), toFloat ((collageHeight // 2) - my) )
 
 
-inputs =
-  Signal.map2 mouseToCollage Mouse.position Window.dimensions
-    |> Signal.map Click
-
-
-sampledInputs =
-  Signal.sampleOn Mouse.clicks inputs
-
-
-
--- Boilerplate
-
-
-app =
-  start { init = init, view = view, update = update, inputs = [ sampledInputs {- , Signal.map Frame (Time.fps 30) -} ] }
+-- clickSub = Mouse.clicks (\p -> mouseToCollage (p.x, p.y) (w.x, w.y))
+clickSub = Sub.map Click (Mouse.clicks (\p -> mouseToCollage (p.x, p.y) (640, 480)))
 
 
 main =
-  app.html
+  Html.program { init = init
+               , view = view
+               , update = update
+               , subscriptions = \_ -> Sub.batch [ AnimationFrame.times Tick
+                                                 , clickSub ]
+               }
 
 
 
--- Debugger can't be used with ports, and thus Effects.tick can't be
+
+-- Debugger can't be used with ports, and thus tick can't be
 -- used for animation. Thus the "Frame" action.
-
-
-port runner : Signal (Task Effects.Never ())
-port runner =
-  app.tasks
