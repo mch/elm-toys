@@ -4,7 +4,7 @@
 -- Except for the animation. That's all me.
 
 
-module Main (..) where
+module Main exposing (..)
 
 import Graphics.Collage exposing (..)
 import Color exposing (black, white)
@@ -15,53 +15,98 @@ import Html exposing (fromElement)
 
 
 xSize =
-  10
+    10
 
 
 pixelSize =
-  20
+    20
 
 
 picture =
-  [ 0, 1, 0, 1, 0, 0, 1, 0, 0, 0
-  , 1, 0, 0, 1, 0, 0, 1, 0, 0, 0
-  , 0, 0, 1, 1, 1, 1, 1, 1, 0, 0
-  , 0, 1, 0, 1, 0, 1, 0, 1, 0, 1
-  , 0, 1, 0, 1, 0, 1, 0, 1, 0, 1
-  ]
+    [ 0
+    , 1
+    , 0
+    , 1
+    , 0
+    , 0
+    , 1
+    , 0
+    , 0
+    , 0
+    , 1
+    , 0
+    , 0
+    , 1
+    , 0
+    , 0
+    , 1
+    , 0
+    , 0
+    , 0
+    , 0
+    , 0
+    , 1
+    , 1
+    , 1
+    , 1
+    , 1
+    , 1
+    , 0
+    , 0
+    , 0
+    , 1
+    , 0
+    , 1
+    , 0
+    , 1
+    , 0
+    , 1
+    , 0
+    , 1
+    , 0
+    , 1
+    , 0
+    , 1
+    , 0
+    , 1
+    , 0
+    , 1
+    , 0
+    , 1
+    ]
 
 
 toBox : Int -> Int -> Form
 toBox index i =
-  let
-    box =
-      rect pixelSize pixelSize
+    let
+        box =
+            rect pixelSize pixelSize
 
-    xoffset =
-      pixelSize * (index % 10)
+        xoffset =
+            pixelSize * (index % 10)
 
-    yoffset =
-      -pixelSize * (index // 10)
+        yoffset =
+            -pixelSize * (index // 10)
 
-    color =
-      if i == 0 then
-        black
-      else
-        white
+        color =
+            if i == 0 then
+                black
+            else
+                white
 
-    form =
-      filled color box
-  in
-    move ( toFloat xoffset, toFloat yoffset ) form
+        form =
+            filled color box
+    in
+        move ( toFloat xoffset, toFloat yoffset ) form
 
 
 rotate : List a -> List a
 rotate l =
-  let
-    last =
-      List.drop (List.length l - 1) l
-  in
-    List.take (List.length l) (List.append last l)
+    let
+        last =
+            List.drop (List.length l - 1) l
+    in
+        List.take (List.length l) (List.append last l)
 
 
 
@@ -69,37 +114,37 @@ rotate l =
 
 
 type alias Model =
-  { picture : List Int }
+    { picture : List Int }
 
 
 type Action
-  = Tick Time
+    = Tick Time
 
 
 init =
-  ( { picture = picture }, Effects.none )
+    ( { picture = picture }, Effects.none )
 
 
 update action m =
-  ( { m | picture = rotate m.picture }, Effects.none )
+    ( { m | picture = rotate m.picture }, Effects.none )
 
 
 view addr m =
-  let
-    forms =
-      List.indexedMap toBox m.picture
-  in
-    collage 800 600 forms |> fromElement
+    let
+        forms =
+            List.indexedMap toBox m.picture
+    in
+        collage 800 600 forms |> fromElement
 
 
 app =
-  start { init = init, update = update, view = view, inputs = [ (fps 1) ] }
+    start { init = init, update = update, view = view, inputs = [ (fps 1) ] }
 
 
 main =
-  app.html
+    app.html
 
 
 port runner : Signal (Task Effects.Never ())
 port runner =
-  app.tasks
+    app.tasks

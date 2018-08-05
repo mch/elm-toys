@@ -1,9 +1,8 @@
-module Main exposing (..) 
+module Main exposing (..)
 
 import AnimationFrame exposing (..)
 import Collage exposing (..)
 import Element exposing (toHtml)
-import Html.App as Html
 import Task exposing (Task)
 import Color exposing (..)
 import Time exposing (..)
@@ -13,302 +12,320 @@ import Window
 
 
 collageWidth =
-  800
+    800
 
 
 collageHeight =
-  600
+    600
 
 
 maxRadius =
-  1000
+    1000
 
 
 type alias Ping =
-  { color : Color
-  , radius : Float
-  , speed : Float
-  , position : ( Float, Float )
-  , fadeSpeed : Float
-  , intensity : Float
-  }
+    { color : Color
+    , radius : Float
+    , speed : Float
+    , position : ( Float, Float )
+    , fadeSpeed : Float
+    , intensity : Float
+    }
 
 
 type alias Target =
-  { color : Color
-  , position : ( Float, Float )
-  , size : Float
-  , value : Int
+    { color : Color
+    , position : ( Float, Float )
+    , size : Float
+    , value : Int
 
-  -- Properties related to drawing the target, not intrinsic to the
-  -- target... should be a different record all together?
-  , detected : Bool
-  , seedNewPing : Bool
-  , intensity : Float
-  }
+    -- Properties related to drawing the target, not intrinsic to the
+    -- target... should be a different record all together?
+    , detected : Bool
+    , seedNewPing : Bool
+    , intensity : Float
+    }
 
 
 type alias Model =
-  { pings : List Ping
-  , targets : List Target
-  , score : Int
-  , previousTick : Time
-  }
+    { pings : List Ping
+    , targets : List Target
+    , score : Int
+    , previousTick : Time
+    }
 
 
 type Msg
-  = Tick Time
-  | Frame Time
-  | Click ( Float, Float )
+    = Tick Time
+    | Frame Time
+    | Click ( Float, Float )
 
 
 view : Model -> Html Msg
 view model =
-  let
-    drawPing ping =
-      Collage.circle ping.radius
-        |> outlined { defaultLine | color = (adjustAlpha ping.color ping.intensity) }
-        |> move ping.position
+    let
+        drawPing ping =
+            Collage.circle ping.radius
+                |> outlined { defaultLine | color = (adjustAlpha ping.color ping.intensity) }
+                |> move ping.position
 
-    pings =
-      List.map drawPing model.pings
+        pings =
+            List.map drawPing model.pings
 
-    drawTarget target =
-      rect target.size target.size
-        |> filled (adjustAlpha target.color target.intensity)
-        |> move target.position
+        drawTarget target =
+            rect target.size target.size
+                |> filled (adjustAlpha target.color target.intensity)
+                |> move target.position
 
-    targets =
-      List.map drawTarget model.targets
+        targets =
+            List.map drawTarget model.targets
 
-    gameBoard =
-      collage collageWidth collageHeight (pings ++ targets)
-        |> toHtml
-  in
-    div [] [ gameBoard
-           , p [] [Html.text ("Score: " ++ (toString model.score))]]
+        gameBoard =
+            collage collageWidth collageHeight (pings ++ targets)
+                |> toHtml
+    in
+        div []
+            [ gameBoard
+            , p [] [ Html.text ("Score: " ++ (toString model.score)) ]
+            ]
 
 
 adjustAlpha : Color -> Float -> Color
 adjustAlpha c i =
-  let
-    rgb = Color.toRgb c
-  in
-    Color.rgba rgb.red rgb.green rgb.blue i
+    let
+        rgb =
+            Color.toRgb c
+    in
+        Color.rgba rgb.red rgb.green rgb.blue i
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
-  let
-    updatePreviousTime t m =
-      { m | previousTick = t }
+    let
+        updatePreviousTime t m =
+            { m | previousTick = t }
 
-    newModel =
-      case action of
-        Frame dt ->
-          growPings model dt
-            |> fadePings dt
-            |> fadeTargets dt
-            |> detectTargets
+        newModel =
+            case action of
+                Frame dt ->
+                    growPings model dt
+                        |> fadePings dt
+                        |> fadeTargets dt
+                        |> detectTargets
 
-        Tick t ->
-          growPings model t
-            |> fadePings t
-            |> fadeTargets t
-            |> detectTargets
-            |> updatePreviousTime t
+                Tick t ->
+                    growPings model t
+                        |> fadePings t
+                        |> fadeTargets t
+                        |> detectTargets
+                        |> updatePreviousTime t
 
-        Click ( px, py ) ->
-          handleClick px py model
-  in
-    ( newModel, Cmd.none )
+                Click ( px, py ) ->
+                    handleClick px py model
+    in
+        ( newModel, Cmd.none )
 
 
 handleClick : Float -> Float -> Model -> Model
 handleClick px py model =
-  let
-    detectTarget t =
-      let
-        (tx, ty) =
-          t.position
+    let
+        detectTarget t =
+            let
+                ( tx, ty ) =
+                    t.position
 
-        halfSize =
-          t.size / 2
+                halfSize =
+                    t.size / 2
 
-        hit =
-          px > tx - halfSize && px < tx + halfSize && py > ty - halfSize && py < ty + halfSize
-      in
-        (hit, t)
+                hit =
+                    px > tx - halfSize && px < tx + halfSize && py > ty - halfSize && py < ty + halfSize
+            in
+                ( hit, t )
 
-    identifiedTargets = List.map detectTarget model.targets
-    hitTargets = List.map snd (List.filter (\(hit, t) -> hit) identifiedTargets)
-    missedTargets = List.map snd (List.filter (\(hit, t) -> not hit) identifiedTargets)
-    points = List.foldl (\t points -> points + t.value) 0 hitTargets
+        identifiedTargets =
+            List.map detectTarget model.targets
 
-    -- TODO visual and audio reward for hitting a target
-  in
-    if (List.length hitTargets > 0) then
-      { model | targets = missedTargets, score = model.score + points }
-    else
-      seedPing px py model
+        hitTargets =
+            List.map Tuple.second (List.filter (\( hit, t ) -> hit) identifiedTargets)
+
+        missedTargets =
+            List.map Tuple.second (List.filter (\( hit, t ) -> not hit) identifiedTargets)
+
+        points =
+            List.foldl (\t points -> points + t.value) 0 hitTargets
+
+        -- TODO visual and audio reward for hitting a target
+    in
+        if (List.length hitTargets > 0) then
+            { model | targets = missedTargets, score = model.score + points }
+        else
+            seedPing px py model
 
 
 detectTargets : Model -> Model
 detectTargets model =
-  let
-    targetDetected target ping =
-      let
-        ( px, py ) =
-          ping.position
+    let
+        targetDetected target ping =
+            let
+                ( px, py ) =
+                    ping.position
 
-        ( tx, ty ) =
-          target.position
+                ( tx, ty ) =
+                    target.position
 
-        ( dx, dy ) =
-          ( abs (px - tx), abs (py - ty) )
+                ( dx, dy ) =
+                    ( abs (px - tx), abs (py - ty) )
 
-        d =
-          sqrt (dx ^ 2 + dy ^ 2)
+                d =
+                    sqrt (dx ^ 2 + dy ^ 2)
 
-        min =
-          ping.radius - target.size
+                min =
+                    ping.radius - target.size
 
-        max =
-          ping.radius + target.size
-      in
-        d > min && d < max
+                max =
+                    ping.radius + target.size
+            in
+                d > min && d < max
 
-    detectTarget pings target =
-      let
-        detected =
-          List.foldl (||) False (List.map (targetDetected target) pings)
+        detectTarget pings target =
+            let
+                detected =
+                    List.foldl (||) False (List.map (targetDetected target) pings)
 
-        firstDetection = detected && (not target.detected)
+                firstDetection =
+                    detected && (not target.detected)
 
-        intensity =
-          if detected then
-            1
-          else
-            target.intensity
-      in
-        { target
-          | detected = detected
-          , seedNewPing = firstDetection
-          , intensity = intensity
-        }
+                intensity =
+                    if detected then
+                        1
+                    else
+                        target.intensity
+            in
+                { target
+                    | detected = detected
+                    , seedNewPing = firstDetection
+                    , intensity = intensity
+                }
 
-    updatedTargets =
-      List.map (detectTarget model.pings) model.targets
+        updatedTargets =
+            List.map (detectTarget model.pings) model.targets
 
+        generatePing position =
+            let
+                startingRadius =
+                    1
 
-    generatePing position  =
-      let
-        startingRadius =
-          1
+                speed =
+                    100
 
-        speed =
-          100
+                fadeSpeed =
+                    1
 
-        fadeSpeed =
-          1
+                color =
+                    purple
+            in
+                Ping color startingRadius speed position fadeSpeed 1
 
-        color =
-          purple
-      in
-        Ping color startingRadius speed position fadeSpeed 1
-
-
-    newPings = List.map (\t -> generatePing t.position) (List.filter (\t -> t.seedNewPing) updatedTargets)
-  in
-    { model | targets = updatedTargets, pings = model.pings ++ newPings }
+        newPings =
+            List.map (\t -> generatePing t.position) (List.filter (\t -> t.seedNewPing) updatedTargets)
+    in
+        { model | targets = updatedTargets, pings = model.pings ++ newPings }
 
 
 fadeTargets : Time -> Model -> Model
 fadeTargets t model =
-  let
-    dt =
-      (t - model.previousTick) / Time.second
+    let
+        dt =
+            (t - model.previousTick) / Time.second
 
-    fadeSpeed =
-      3
+        fadeSpeed =
+            3
 
-    newTargets =
-      List.map (\t -> { t | intensity = t.intensity - fadeSpeed * dt }) model.targets
-  in
-    { model | targets = newTargets }
+        newTargets =
+            List.map (\t -> { t | intensity = t.intensity - fadeSpeed * dt }) model.targets
+    in
+        { model | targets = newTargets }
 
 
 fadePings : Time -> Model -> Model
 fadePings t model =
-  let
-    dt =
-      (t - model.previousTick) / Time.second
+    let
+        dt =
+            (t - model.previousTick) / Time.second
 
-    newPings =
-      List.map (\p -> { p | intensity = p.intensity - p.fadeSpeed * dt }) model.pings
+        newPings =
+            List.map (\p -> { p | intensity = p.intensity - p.fadeSpeed * dt }) model.pings
 
-    alivePings =
-      List.filter (\p -> p.intensity > 0) newPings
-  in
-    { model | pings = alivePings }
+        alivePings =
+            List.filter (\p -> p.intensity > 0) newPings
+    in
+        { model | pings = alivePings }
 
 
 growPings : Model -> Time -> Model
 growPings m t =
-  let
-    dt =
-      (t - m.previousTick) / Time.second
+    let
+        dt =
+            (t - m.previousTick) / Time.second
 
-    growPing c =
-      { c | radius = c.radius + c.speed * dt }
+        growPing c =
+            { c | radius = c.radius + c.speed * dt }
 
-    newPings =
-      List.map growPing m.pings
+        newPings =
+            List.map growPing m.pings
 
-    keptPings =
-      List.filter (\c -> c.radius < maxRadius) newPings
-  in
-    { m | pings = keptPings }
+        keptPings =
+            List.filter (\c -> c.radius < maxRadius) newPings
+    in
+        { m | pings = keptPings }
 
 
 seedPing : Float -> Float -> Model -> Model
 seedPing cx cy m =
-  let
-    startingRadius =
-      10
+    let
+        startingRadius =
+            10
 
-    startingSpeed =
-      100
+        startingSpeed =
+            100
 
-    defaultFadeSpeed =
-      0
-  in
-    { m | pings = (Ping red startingRadius startingSpeed ( cx, cy ) defaultFadeSpeed 1) :: m.pings }
+        defaultFadeSpeed =
+            0
+    in
+        { m | pings = (Ping red startingRadius startingSpeed ( cx, cy ) defaultFadeSpeed 1) :: m.pings }
 
 
 init : ( Model, Cmd Msg )
 init =
-  ( Model [] [ Target blue ( 0, 0 ) 20 100 False False 0 ] 0 0, Cmd.none )
+    ( Model [] [ Target blue ( 0, 0 ) 20 100 False False 0 ] 0 0, Cmd.none )
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
 mouseToCollage ( mx, my ) ( wx, wy ) =
-  -- Forgot about getting window dimensions initially being 'hard'
-  ( toFloat (mx - (collageWidth // 2)), toFloat ((collageHeight // 2) - my) )
+    -- Forgot about getting window dimensions initially being 'hard'
+    ( toFloat (mx - (collageWidth // 2)), toFloat ((collageHeight // 2) - my) )
+
 
 
 -- clickSub = Mouse.clicks (\p -> mouseToCollage (p.x, p.y) (w.x, w.y))
-clickSub = Sub.map Click (Mouse.clicks (\p -> mouseToCollage (p.x, p.y) (640, 480)))
+
+
+clickSub =
+    Sub.map Click (Mouse.clicks (\p -> mouseToCollage ( p.x, p.y ) ( 640, 480 )))
 
 
 main =
-  Html.program { init = init
-               , view = view
-               , update = update
-               , subscriptions = \_ -> Sub.batch [ AnimationFrame.times Tick
-                                                 , clickSub ]
-               }
-
+    program
+        { init = init
+        , view = view
+        , update = update
+        , subscriptions =
+            \_ ->
+                Sub.batch
+                    [ AnimationFrame.times Tick
+                    , clickSub
+                    ]
+        }
 
 
 
