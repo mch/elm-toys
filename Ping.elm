@@ -23,6 +23,17 @@ maxRadius =
     1000
 
 
+
+-- If this was more of a component-entity-system (CES), a Ping or Target would just be
+-- an integer, the entity id, and there would be components like a drawable component
+-- which would contain data like shapes, colors, etc, a motion component with speed, a
+-- system for modifying the drawable based on the speed.
+
+
+type alias EntityId =
+    Int
+
+
 type alias Ping =
     { color : Color
     , radius : Float
@@ -47,9 +58,30 @@ type alias Target =
     }
 
 
+
+-- When a ping first overlaps a target, it results in a OverlapBegin event.
+-- When it stops overlapping, a OverlapEnd event. This record keeps track of
+-- the current overlaps as part of detecting overlaps and emitting events.
+
+
+type alias Overlaps =
+    List ( EntityId, EntityId )
+
+
+
+-- I wonder if this should be more generic, where the events contain Ints
+-- that are used to look up the actual data in a Dict or List.
+
+
+type OverlapEvent
+    = OverlapBegin Ping Target
+    | OverlapEnd Ping Target
+
+
 type alias Model =
     { pings : List Ping
     , targets : List Target
+    , overlaps : Overlaps
     , score : Int
     , previousTick : Time
     }
@@ -162,31 +194,33 @@ handleClick px py model =
             seedPing px py model
 
 
+targetDetected : Target -> Ping -> Bool
+targetDetected target ping =
+    let
+        ( px, py ) =
+            ping.position
+
+        ( tx, ty ) =
+            target.position
+
+        ( dx, dy ) =
+            ( abs (px - tx), abs (py - ty) )
+
+        d =
+            sqrt (dx ^ 2 + dy ^ 2)
+
+        min =
+            ping.radius - target.size
+
+        max =
+            ping.radius + target.size
+    in
+        d > min && d < max
+
+
 detectTargets : Model -> Model
 detectTargets model =
     let
-        targetDetected target ping =
-            let
-                ( px, py ) =
-                    ping.position
-
-                ( tx, ty ) =
-                    target.position
-
-                ( dx, dy ) =
-                    ( abs (px - tx), abs (py - ty) )
-
-                d =
-                    sqrt (dx ^ 2 + dy ^ 2)
-
-                min =
-                    ping.radius - target.size
-
-                max =
-                    ping.radius + target.size
-            in
-                d > min && d < max
-
         detectTarget pings target =
             let
                 detected =
@@ -297,17 +331,13 @@ seedPing cx cy m =
 
 init : ( Model, Cmd Msg )
 init =
-    ( Model [] [ Target blue ( 0, 0 ) 20 100 False False 0 ] 0 0, Cmd.none )
+    ( Model [] [ Target blue ( 0, 0 ) 20 100 False False 0 ] [] 0 0, Cmd.none )
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
 mouseToCollage ( mx, my ) ( wx, wy ) =
     -- Forgot about getting window dimensions initially being 'hard'
     ( toFloat (mx - (collageWidth // 2)), toFloat ((collageHeight // 2) - my) )
-
-
-
--- clickSub = Mouse.clicks (\p -> mouseToCollage (p.x, p.y) (w.x, w.y))
 
 
 clickSub =
