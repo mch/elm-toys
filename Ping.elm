@@ -89,7 +89,6 @@ type alias Model =
 
 type Msg
     = Tick Time
-    | Frame Time
     | Click ( Float, Float )
 
 
@@ -139,12 +138,6 @@ update action model =
 
         newModel =
             case action of
-                Frame dt ->
-                    growPings model dt
-                        |> fadePings dt
-                        |> fadeTargets dt
-                        |> detectTargets
-
                 Tick t ->
                     growPings model t
                         |> fadePings t
@@ -356,8 +349,3 @@ main =
                     , clickSub
                     ]
         }
-
-
-
--- Debugger can't be used with ports, and thus tick can't be
--- used for animation. Thus the "Frame" action.
