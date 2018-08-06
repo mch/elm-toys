@@ -2,12 +2,13 @@ module Main exposing (..)
 
 import AnimationFrame exposing (..)
 import Collage exposing (..)
-import Element exposing (toHtml)
-import Task exposing (Task)
 import Color exposing (..)
-import Time exposing (..)
+import Dict
+import Element exposing (toHtml)
 import Html exposing (..)
 import Mouse
+import Task exposing (Task)
+import Time exposing (..)
 import Window
 
 
@@ -79,12 +80,31 @@ type OverlapEvent
 
 
 type alias Model =
-    { pings : List Ping
-    , targets : List Target
-    , overlaps : Overlaps
+    { nextEntityId : EntityId
+    , pings : Dict.Dict EntityId Ping
+    , targets : Dict.Dict EntityId Target
     , score : Int
     , previousTick : Time
+    , overlaps : Overlaps
+    , newOverlaps : Overlaps
     }
+
+
+init : ( Model, Cmd Msg )
+init =
+    ( Model
+        1
+        Dict.empty
+        (Dict.singleton
+            0
+            (Target blue ( 0, 0 ) 20 100 False False 0)
+        )
+        0
+        0
+        []
+        []
+    , Cmd.none
+    )
 
 
 type Msg
@@ -101,7 +121,7 @@ view model =
                 |> move ping.position
 
         pings =
-            List.map drawPing model.pings
+            List.map drawPing (Dict.values model.pings)
 
         drawTarget target =
             rect target.size target.size
@@ -109,7 +129,7 @@ view model =
                 |> move target.position
 
         targets =
-            List.map drawTarget model.targets
+            List.map drawTarget (Dict.values model.targets)
 
         gameBoard =
             collage collageWidth collageHeight (pings ++ targets)
@@ -143,6 +163,7 @@ update action model =
                         |> fadePings t
                         |> fadeTargets t
                         |> detectTargets
+                        |> detectOverlaps
                         |> updatePreviousTime t
 
                 Click ( px, py ) ->
@@ -168,20 +189,20 @@ handleClick px py model =
                 ( hit, t )
 
         identifiedTargets =
-            List.map detectTarget model.targets
+            Dict.map (\_ t -> detectTarget t) model.targets
 
         hitTargets =
-            List.map Tuple.second (List.filter (\( hit, t ) -> hit) identifiedTargets)
+            Dict.map (\_ t -> Tuple.second t) (Dict.filter (\_ ( hit, t ) -> hit) identifiedTargets)
 
         missedTargets =
-            List.map Tuple.second (List.filter (\( hit, t ) -> not hit) identifiedTargets)
+            Dict.map (\_ t -> Tuple.second t) (Dict.filter (\_ ( hit, t ) -> not hit) identifiedTargets)
 
         points =
-            List.foldl (\t points -> points + t.value) 0 hitTargets
+            Dict.foldl (\_ t points -> points + t.value) 0 hitTargets
 
         -- TODO visual and audio reward for hitting a target
     in
-        if (List.length hitTargets > 0) then
+        if (Dict.size hitTargets > 0) then
             { model | targets = missedTargets, score = model.score + points }
         else
             seedPing px py model
@@ -211,13 +232,44 @@ targetDetected target ping =
         d > min && d < max
 
 
+detectOverlaps : Model -> Model
+detectOverlaps model =
+    let
+        g pid ping ( tid, target ) =
+            if (targetDetected target ping) then
+                [ ( pid, tid ) ]
+            else
+                []
+
+        -- list indexes are no good because they are not unique.
+        -- need a dicts mapping entity ids to component data.
+        f ( index, ping ) =
+            List.concat (List.map (g index ping) (Dict.toList model.targets))
+
+        overlaps =
+            --Debug.log "overlaps"
+            (List.concat (List.map f (Dict.toList model.pings)))
+
+        newOverlaps =
+            Debug.log "new overlaps" (List.filter (\x -> not (List.member x model.overlaps)) overlaps)
+    in
+        { model | overlaps = overlaps, newOverlaps = newOverlaps }
+
+
+handleOverlaps : Model -> Model
+handleOverlaps model =
+    -- Change target intensity
+    -- Create new ping, mark it as already overlapping with the target that caused it.
+    model
+
+
 detectTargets : Model -> Model
 detectTargets model =
     let
         detectTarget pings target =
             let
                 detected =
-                    List.foldl (||) False (List.map (targetDetected target) pings)
+                    List.foldl (||) False (List.map (\p -> targetDetected target p) (Dict.values pings))
 
                 firstDetection =
                     detected && (not target.detected)
@@ -235,7 +287,7 @@ detectTargets model =
                 }
 
         updatedTargets =
-            List.map (detectTarget model.pings) model.targets
+            Dict.map (\_ t -> detectTarget model.pings t) model.targets
 
         generatePing position =
             let
@@ -253,10 +305,35 @@ detectTargets model =
             in
                 Ping color startingRadius speed position fadeSpeed 1
 
-        newPings =
-            List.map (\t -> generatePing t.position) (List.filter (\t -> t.seedNewPing) updatedTargets)
+        newPingPositions =
+            Dict.filter (\_ t -> t.seedNewPing) updatedTargets
+                |> Dict.values
+                |> List.map .position
+
+        processNewPings : EntityId -> List ( Float, Float ) -> ( EntityId, List ( EntityId, Ping ) )
+        processNewPings entityId positions =
+            case positions of
+                head :: [] ->
+                    ( entityId + 1, [ ( entityId, generatePing head ) ] )
+
+                head :: rest ->
+                    let
+                        ( nextEntityId, assocPingList ) =
+                            processNewPings (entityId + 1) rest
+                    in
+                        ( nextEntityId, ( entityId, (generatePing head) ) :: assocPingList )
+
+                [] ->
+                    ( entityId, [] )
+
+        ( nextEntityId, newPings ) =
+            processNewPings model.nextEntityId newPingPositions
     in
-        { model | targets = updatedTargets, pings = model.pings ++ newPings }
+        { model
+            | targets = updatedTargets
+            , pings = Dict.union model.pings (Dict.fromList newPings)
+            , nextEntityId = nextEntityId
+        }
 
 
 fadeTargets : Time -> Model -> Model
@@ -269,7 +346,7 @@ fadeTargets t model =
             3
 
         newTargets =
-            List.map (\t -> { t | intensity = t.intensity - fadeSpeed * dt }) model.targets
+            Dict.map (\_ t -> { t | intensity = t.intensity - fadeSpeed * dt }) model.targets
     in
         { model | targets = newTargets }
 
@@ -281,10 +358,10 @@ fadePings t model =
             (t - model.previousTick) / Time.second
 
         newPings =
-            List.map (\p -> { p | intensity = p.intensity - p.fadeSpeed * dt }) model.pings
+            Dict.map (\_ p -> { p | intensity = p.intensity - p.fadeSpeed * dt }) model.pings
 
         alivePings =
-            List.filter (\p -> p.intensity > 0) newPings
+            Dict.filter (\_ p -> p.intensity > 0) newPings
     in
         { model | pings = alivePings }
 
@@ -299,10 +376,10 @@ growPings m t =
             { c | radius = c.radius + c.speed * dt }
 
         newPings =
-            List.map growPing m.pings
+            Dict.map (\_ p -> growPing p) m.pings
 
         keptPings =
-            List.filter (\c -> c.radius < maxRadius) newPings
+            Dict.filter (\_ c -> c.radius < maxRadius) newPings
     in
         { m | pings = keptPings }
 
@@ -318,13 +395,17 @@ seedPing cx cy m =
 
         defaultFadeSpeed =
             0
+
+        nextEntityId =
+            m.nextEntityId + 1
+
+        ping =
+            Ping red startingRadius startingSpeed ( cx, cy ) defaultFadeSpeed 1
     in
-        { m | pings = (Ping red startingRadius startingSpeed ( cx, cy ) defaultFadeSpeed 1) :: m.pings }
-
-
-init : ( Model, Cmd Msg )
-init =
-    ( Model [] [ Target blue ( 0, 0 ) 20 100 False False 0 ] [] 0 0, Cmd.none )
+        { m
+            | pings = Dict.insert m.nextEntityId ping m.pings
+            , nextEntityId = nextEntityId
+        }
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
