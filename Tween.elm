@@ -2,15 +2,17 @@ module Main exposing (..)
 
 import AnimationFrame exposing (..)
 import Dict
+import Ease
 import Html exposing (..)
 import Time exposing (..)
 
 
-type alias Tween a =
-    { start : a
-    , end : a
+type alias Tween =
+    { start : Float
+    , end : Float
     , startTime : Time
     , duration : Time
+    , f : Ease.Easing
     }
 
 
@@ -18,7 +20,7 @@ type alias Model =
     { t : Time
     , dt : Time
     , current : Float
-    , tween : Maybe (Tween Float)
+    , tween : Maybe Tween
     }
 
 
@@ -55,23 +57,26 @@ type Msg
     = Tick Time
 
 
-lerp tween t =
+{-| Applies the easing function for the tween, normalizing inputs and denormalizing outputs.
+-}
+applyEasing : Tween -> Time -> Float
+applyEasing tween t =
     let
         x =
-            t - tween.startTime
+            (t - tween.startTime) / tween.duration
 
         b =
             tween.start
 
         m =
-            (tween.end - tween.start) / tween.duration
+            tween.end - tween.start
 
         y =
             if t > tween.startTime + tween.duration then
                 tween.end
                 -- remove the tween from processing...
             else
-                x * m + b
+                (tween.f x) * m + b
     in
         y
 
@@ -82,12 +87,12 @@ handleTick t model =
         dt =
             t - model.t
 
-        tween : Tween Float
+        tween : Tween
         tween =
-            Maybe.withDefault (Tween 0 100 t 5000) model.tween
+            Maybe.withDefault (Tween 0 100 t 5000 Ease.inOutQuart) model.tween
 
         current =
-            lerp tween t
+            applyEasing tween t
     in
         { model | t = t, dt = dt, tween = Maybe.Just tween, current = current }
 
