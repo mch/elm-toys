@@ -26,22 +26,28 @@ maxRadius =
 
 
 
-{- If this was more of a component-entity-system (CES), a Ping or Target would just be
-      an integer, the entity id, and there would be components like a drawable component
-      which would contain data like shapes, colors, etc, a motion component with speed, a
-      system for modifying the drawable based on the speed...
+{- If this was more of a component-entity-system (CES), a Ping or Target would
+      just be an integer, the entity id, and there would be components like a
+      drawable component which would contain data like shapes, colors, etc, a
+      motion component with speed, a system for modifying the drawable based on
+      the speed...
 
    TODO
    - Add functions to clear an entity from all component collections
    - Make it easier to add an entity that involves multiple components
-   - Make it easier to add an entity that only involves one component, because of the need to update nextEntityId
+   - Make it easier to add an entity that only involves one component, because of
+     the need to update nextEntityId
 -}
 
 
+{-| Id that uniquely identifies each entity across all components
+-}
 type alias EntityId =
     Int
 
 
+{-| Tween component
+-}
 type alias Tween =
     { start : Float
     , end : Float
@@ -51,7 +57,9 @@ type alias Tween =
     }
 
 
-{-| Applies the easing function for the tween, normalizing inputs and denormalizing outputs.
+{-| Applies the easing function for the tween, normalizing inputs and
+denormalizing outputs. This would be the update function for the Tween
+component.
 -}
 applyEasing : Tween -> Time -> Float
 applyEasing tween t =
@@ -68,7 +76,6 @@ applyEasing tween t =
         y =
             if t > tween.startTime + tween.duration then
                 tween.end
-                -- remove the tween from processing...
             else
                 (tween.f x) * m + b
     in
@@ -77,6 +84,12 @@ applyEasing tween t =
 
 type alias Position =
     ( Float, Float )
+
+
+
+{-
+   Components
+-}
 
 
 type alias Ping =
@@ -101,19 +114,14 @@ type alias FadeableIntensity =
     }
 
 
-
-{- By identifying the overlapping entities first, and modifying them later, we
-   can perform other actions like creating new entities.
+{-| By identifying the overlapping entities first, and modifying them later, we
+can perform other actions like creating new entities. This state is related
+specifically to the System that detects overlapping entities. It's not really a
+component, so I'm not totally sure what to do with it. Systems kind of need a
+mechanism to keep track of their own state.
 -}
-
-
 type alias Overlaps =
     List ( EntityId, EntityId )
-
-
-type OverlapEvent
-    = OverlapBegin ( EntityId, EntityId )
-    | OverlapEnd ( EntityId, EntityId )
 
 
 type alias Model =
@@ -128,29 +136,47 @@ type alias Model =
     }
 
 
-init : ( Model, Cmd Msg )
-init =
+createFadingPing : Model -> Position -> Color -> Time -> Model
+createFadingPing model position color duration =
     let
-        initialEntityId =
-            0
+        ping =
+            Ping color 10 100 position
 
-        initialTarget =
-            Target blue ( 0, 0 ) 20 100
+        fade =
+            FadeableIntensity 1 (Tween 1.0 0.0 model.previousTick duration Ease.linear)
+    in
+        { model
+            | pings = Dict.insert model.nextEntityId ping model.pings
+            , fades = Dict.insert model.nextEntityId fade model.fades
+            , nextEntityId = model.nextEntityId + 1
+        }
 
-        targetFade =
+
+createTarget : Position -> Color -> Model -> Model
+createTarget position color model =
+    let
+        id =
+            model.nextEntityId
+
+        target =
+            Target color position 20 100
+
+        fade =
             FadeableIntensity 0.0 (Tween 0.0 0.0 0.0 0.0 Ease.linear)
     in
-        ( Model
-            1
-            Dict.empty
-            (Dict.singleton 0 initialTarget)
-            (Dict.singleton 0 targetFade)
-            0
-            0
-            []
-            []
-        , Cmd.none
-        )
+        { model
+            | targets = Dict.insert id target model.targets
+            , fades = Dict.insert id fade model.fades
+            , nextEntityId = id + 1
+        }
+
+
+init : ( Model, Cmd Msg )
+init =
+    ( Model 0 Dict.empty Dict.empty Dict.empty 0 0 [] []
+        |> createTarget ( 0, 0 ) blue
+    , Cmd.none
+    )
 
 
 type Msg
@@ -334,22 +360,8 @@ handleOverlaps model =
         List.foldl applyOverlapUpdates model model.newOverlaps
 
 
-createFadingPing : Model -> Position -> Color -> Time -> Model
-createFadingPing model position color duration =
-    let
-        ping =
-            Ping color 10 100 position
-
-        fade =
-            FadeableIntensity 1 (Tween 1.0 0.0 model.previousTick duration Ease.linear)
-    in
-        { model
-            | pings = Dict.insert model.nextEntityId ping model.pings
-            , fades = Dict.insert model.nextEntityId fade model.fades
-            , nextEntityId = model.nextEntityId + 1
-        }
-
-
+{-| This would be the ping component update function.
+-}
 growPings : Model -> Time -> Model
 growPings m t =
     let
