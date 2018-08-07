@@ -46,6 +46,30 @@ type alias Tween =
     }
 
 
+{-| Applies the easing function for the tween, normalizing inputs and denormalizing outputs.
+-}
+applyEasing : Tween -> Time -> Float
+applyEasing tween t =
+    let
+        x =
+            (t - tween.startTime) / tween.duration
+
+        b =
+            tween.start
+
+        m =
+            tween.end - tween.start
+
+        y =
+            if t > tween.startTime + tween.duration then
+                tween.end
+                -- remove the tween from processing...
+            else
+                (tween.f x) * m + b
+    in
+        y
+
+
 type alias Ping =
     { color : Color
     , radius : Float
@@ -61,12 +85,6 @@ type alias Target =
     , position : ( Float, Float )
     , size : Float
     , value : Int
-
-    -- Properties related to drawing the target, not intrinsic to the
-    -- target... should be a different record all together?
-    , detected : Bool
-    , seedNewPing : Bool
-    , intensity : Float
     }
 
 
@@ -95,6 +113,7 @@ type alias Model =
     { nextEntityId : EntityId
     , pings : Dict.Dict EntityId Ping
     , targets : Dict.Dict EntityId Target
+    , fades : Dict.Dict EntityId FadeableIntensity
     , score : Int
     , previousTick : Time
     , overlaps : Overlaps
@@ -109,8 +128,9 @@ init =
         Dict.empty
         (Dict.singleton
             0
-            (Target blue ( 0, 0 ) 20 100 False False 0)
+            (Target blue ( 0, 0 ) 20 100)
         )
+        (Dict.singleton 0 (FadeableIntensity 0.0 (Tween 0.0 0.0 0.0 0.0 Ease.linear)))
         0
         0
         []
@@ -135,13 +155,13 @@ view model =
         pings =
             List.map drawPing (Dict.values model.pings)
 
-        drawTarget target =
+        drawTarget ( id, target ) =
             rect target.size target.size
-                |> filled (adjustAlpha target.color target.intensity)
+                |> filled (adjustAlpha target.color (Dict.get id model.fades |> Maybe.map .intensity |> Maybe.withDefault 1))
                 |> move target.position
 
         targets =
-            List.map drawTarget (Dict.values model.targets)
+            List.map drawTarget (Dict.toList model.targets)
 
         gameBoard =
             collage collageWidth collageHeight (pings ++ targets)
@@ -173,7 +193,7 @@ update action model =
                 Tick t ->
                     growPings model t
                         |> fadePings t
-                        |> fadeTargets t
+                        |> updateFades t
                         |> detectOverlaps
                         |> handleOverlaps
                         |> updatePreviousTime t
@@ -220,6 +240,11 @@ handleClick px py model =
             seedPing px py model
 
 
+updateFades : Time -> Model -> Model
+updateFades t model =
+    { model | fades = Dict.map (\id f -> { f | intensity = applyEasing f.tween t }) model.fades }
+
+
 targetDetected : Target -> Ping -> Bool
 targetDetected target ping =
     let
@@ -257,11 +282,10 @@ detectOverlaps model =
             List.concat (List.map (g index ping) (Dict.toList model.targets))
 
         overlaps =
-            --Debug.log "overlaps"
-            (List.concat (List.map f (Dict.toList model.pings)))
+            List.concat (List.map f (Dict.toList model.pings))
 
         newOverlaps =
-            Debug.log "new overlaps" (List.filter (\x -> not (List.member x model.overlaps)) overlaps)
+            List.filter (\x -> not (List.member x model.overlaps)) overlaps
     in
         { model | overlaps = overlaps, newOverlaps = newOverlaps }
 
@@ -270,13 +294,16 @@ handleOverlaps : Model -> Model
 handleOverlaps model =
     -- Create new ping, mark it as already overlapping with the target that caused it.
     let
-        updateTarget t =
-            { t | intensity = 1 }
+        updateTargetFade f =
+            { f
+                | intensity = 1
+                , tween = Tween 1 0 model.previousTick 1000 Ease.inOutCubic
+            }
 
         updatePing p =
             { p | intensity = p.intensity * 0.9 }
 
-        applyOverlapUpdates ( pid, tid ) ( pings, targets, entityId, overlaps ) =
+        applyOverlapUpdates ( pid, tid ) ( pings, fades, entityId, overlaps ) =
             let
                 updatedPings =
                     Dict.update pid (Maybe.map updatePing) pings
@@ -288,30 +315,15 @@ handleOverlaps model =
                 nextEntityId =
                     entityId + 1
 
-                updatedTargets =
-                    Dict.update tid (Maybe.map updateTarget) targets
+                updatedFades =
+                    Dict.update tid (Maybe.map updateTargetFade) fades
             in
-                ( updatedPings, updatedTargets, nextEntityId, updatedOverlaps )
+                ( updatedPings, updatedFades, nextEntityId, updatedOverlaps )
 
-        ( updatedPings, updatedTargets, nextEntityId, overlaps ) =
-            List.foldl applyOverlapUpdates ( model.pings, model.targets, model.nextEntityId, model.overlaps ) model.newOverlaps
+        ( updatedPings, updatedFades, nextEntityId, overlaps ) =
+            List.foldl applyOverlapUpdates ( model.pings, model.fades, model.nextEntityId, model.overlaps ) model.newOverlaps
     in
-        { model | pings = updatedPings, targets = updatedTargets, nextEntityId = nextEntityId, overlaps = overlaps }
-
-
-fadeTargets : Time -> Model -> Model
-fadeTargets t model =
-    let
-        dt =
-            (t - model.previousTick) / Time.second
-
-        fadeSpeed =
-            3
-
-        newTargets =
-            Dict.map (\_ t -> { t | intensity = t.intensity - fadeSpeed * dt }) model.targets
-    in
-        { model | targets = newTargets }
+        { model | pings = updatedPings, fades = updatedFades, nextEntityId = nextEntityId, overlaps = overlaps }
 
 
 fadePings : Time -> Model -> Model
