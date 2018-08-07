@@ -136,8 +136,8 @@ type alias Model =
     }
 
 
-createFadingPing : Model -> Position -> Color -> Time -> Model
-createFadingPing model position color duration =
+createFadingPing : Position -> Color -> Time -> Model -> Model
+createFadingPing position color duration model =
     let
         ping =
             Ping color 10 100 position
@@ -276,7 +276,7 @@ handleClick px py model =
         if (Dict.size hitTargets > 0) then
             { model | targets = missedTargets, score = model.score + points }
         else
-            createFadingPing model ( px, py ) red 30000
+            createFadingPing ( px, py ) red 30000 model
 
 
 updateFades : Time -> Model -> Model
@@ -343,7 +343,7 @@ handleOverlaps model =
             let
                 model1 =
                     Dict.get tid model.targets
-                        |> Maybe.map (\target -> createFadingPing model target.position purple 1000)
+                        |> Maybe.map (\target -> createFadingPing target.position purple 1000 model)
                         |> Maybe.withDefault model
 
                 updatedOverlaps =
