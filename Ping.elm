@@ -4,6 +4,7 @@ import AnimationFrame exposing (..)
 import Collage exposing (..)
 import Color exposing (..)
 import Dict
+import Ease
 import Element exposing (toHtml)
 import Html exposing (..)
 import Mouse
@@ -25,14 +26,24 @@ maxRadius =
 
 
 
--- If this was more of a component-entity-system (CES), a Ping or Target would just be
--- an integer, the entity id, and there would be components like a drawable component
--- which would contain data like shapes, colors, etc, a motion component with speed, a
--- system for modifying the drawable based on the speed.
+{- If this was more of a component-entity-system (CES), a Ping or Target would just be
+   an integer, the entity id, and there would be components like a drawable component
+   which would contain data like shapes, colors, etc, a motion component with speed, a
+   system for modifying the drawable based on the speed...
+-}
 
 
 type alias EntityId =
     Int
+
+
+type alias Tween =
+    { start : Float
+    , end : Float
+    , startTime : Time
+    , duration : Time
+    , f : Ease.Easing
+    }
 
 
 type alias Ping =
@@ -59,24 +70,25 @@ type alias Target =
     }
 
 
+type alias FadeableIntensity =
+    { intensity : Float
+    , tween : Tween
+    }
 
--- When a ping first overlaps a target, it results in a OverlapBegin event.
--- When it stops overlapping, a OverlapEnd event. This record keeps track of
--- the current overlaps as part of detecting overlaps and emitting events.
+
+
+{- By identifying the overlapping entities first, and modifying them later, we
+   can perform other actions like creating new entities.
+-}
 
 
 type alias Overlaps =
     List ( EntityId, EntityId )
 
 
-
--- I wonder if this should be more generic, where the events contain Ints
--- that are used to look up the actual data in a Dict or List.
-
-
 type OverlapEvent
-    = OverlapBegin Ping Target
-    | OverlapEnd Ping Target
+    = OverlapBegin ( EntityId, EntityId )
+    | OverlapEnd ( EntityId, EntityId )
 
 
 type alias Model =
@@ -162,8 +174,8 @@ update action model =
                     growPings model t
                         |> fadePings t
                         |> fadeTargets t
-                        |> detectTargets
                         |> detectOverlaps
+                        |> handleOverlaps
                         |> updatePreviousTime t
 
                 Click ( px, py ) ->
@@ -241,8 +253,6 @@ detectOverlaps model =
             else
                 []
 
-        -- list indexes are no good because they are not unique.
-        -- need a dicts mapping entity ids to component data.
         f ( index, ping ) =
             List.concat (List.map (g index ping) (Dict.toList model.targets))
 
@@ -258,82 +268,35 @@ detectOverlaps model =
 
 handleOverlaps : Model -> Model
 handleOverlaps model =
-    -- Change target intensity
     -- Create new ping, mark it as already overlapping with the target that caused it.
-    model
-
-
-detectTargets : Model -> Model
-detectTargets model =
     let
-        detectTarget pings target =
+        updateTarget t =
+            { t | intensity = 1 }
+
+        updatePing p =
+            { p | intensity = p.intensity * 0.9 }
+
+        applyOverlapUpdates ( pid, tid ) ( pings, targets, entityId, overlaps ) =
             let
-                detected =
-                    List.foldl (||) False (List.map (\p -> targetDetected target p) (Dict.values pings))
+                updatedPings =
+                    Dict.update pid (Maybe.map updatePing) pings
+                        |> Dict.insert model.nextEntityId (Ping purple 1 100 ( 0.0, 0.0 ) 1 1)
 
-                firstDetection =
-                    detected && (not target.detected)
+                updatedOverlaps =
+                    ( model.nextEntityId, tid ) :: overlaps
 
-                intensity =
-                    if detected then
-                        1
-                    else
-                        target.intensity
+                nextEntityId =
+                    entityId + 1
+
+                updatedTargets =
+                    Dict.update tid (Maybe.map updateTarget) targets
             in
-                { target
-                    | detected = detected
-                    , seedNewPing = firstDetection
-                    , intensity = intensity
-                }
+                ( updatedPings, updatedTargets, nextEntityId, updatedOverlaps )
 
-        updatedTargets =
-            Dict.map (\_ t -> detectTarget model.pings t) model.targets
-
-        generatePing position =
-            let
-                startingRadius =
-                    1
-
-                speed =
-                    100
-
-                fadeSpeed =
-                    1
-
-                color =
-                    purple
-            in
-                Ping color startingRadius speed position fadeSpeed 1
-
-        newPingPositions =
-            Dict.filter (\_ t -> t.seedNewPing) updatedTargets
-                |> Dict.values
-                |> List.map .position
-
-        processNewPings : EntityId -> List ( Float, Float ) -> ( EntityId, List ( EntityId, Ping ) )
-        processNewPings entityId positions =
-            case positions of
-                head :: [] ->
-                    ( entityId + 1, [ ( entityId, generatePing head ) ] )
-
-                head :: rest ->
-                    let
-                        ( nextEntityId, assocPingList ) =
-                            processNewPings (entityId + 1) rest
-                    in
-                        ( nextEntityId, ( entityId, (generatePing head) ) :: assocPingList )
-
-                [] ->
-                    ( entityId, [] )
-
-        ( nextEntityId, newPings ) =
-            processNewPings model.nextEntityId newPingPositions
+        ( updatedPings, updatedTargets, nextEntityId, overlaps ) =
+            List.foldl applyOverlapUpdates ( model.pings, model.targets, model.nextEntityId, model.overlaps ) model.newOverlaps
     in
-        { model
-            | targets = updatedTargets
-            , pings = Dict.union model.pings (Dict.fromList newPings)
-            , nextEntityId = nextEntityId
-        }
+        { model | pings = updatedPings, targets = updatedTargets, nextEntityId = nextEntityId, overlaps = overlaps }
 
 
 fadeTargets : Time -> Model -> Model
