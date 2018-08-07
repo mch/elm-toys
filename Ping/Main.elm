@@ -3,6 +3,7 @@ module Main exposing (..)
 import AnimationFrame exposing (..)
 import Collage exposing (..)
 import Color exposing (..)
+import Components exposing (..)
 import Constants exposing (..)
 import Dict
 import Ease
@@ -32,42 +33,6 @@ import Window
 -}
 type alias EntityId =
     Int
-
-
-{-| Tween component
--}
-type alias Tween =
-    { start : Float
-    , end : Float
-    , startTime : Time
-    , duration : Time
-    , f : Ease.Easing
-    }
-
-
-{-| Applies the easing function for the tween, normalizing inputs and
-denormalizing outputs. This would be the update function for the Tween
-component.
--}
-applyEasing : Tween -> Time -> Float
-applyEasing tween t =
-    let
-        x =
-            (t - tween.startTime) / tween.duration
-
-        b =
-            tween.start
-
-        m =
-            tween.end - tween.start
-
-        y =
-            if t > tween.startTime + tween.duration then
-                tween.end
-            else
-                (tween.f x) * m + b
-    in
-        y
 
 
 type alias Position =
@@ -131,7 +96,7 @@ createFadingPing position color duration model =
             Ping color 10 100 position
 
         fade =
-            FadeableIntensity 1 (Tween 1.0 0.0 model.previousTick duration Ease.linear)
+            FadeableIntensity 1 (createTween 1.0 0.0 model.previousTick duration Ease.linear)
     in
         { model
             | pings = Dict.insert model.nextEntityId ping model.pings
@@ -150,7 +115,7 @@ createTarget position color model =
             Target color position 20 100
 
         fade =
-            FadeableIntensity 0.0 (Tween 0.0 0.0 0.0 0.0 Ease.linear)
+            FadeableIntensity 0.0 (createTween 0.0 0.0 0.0 0.0 Ease.linear)
     in
         { model
             | targets = Dict.insert id target model.targets
@@ -324,7 +289,7 @@ handleOverlaps model =
         updateTargetFade f =
             { f
                 | intensity = 1
-                , tween = Tween 1 0 model.previousTick 1000 Ease.inOutCubic
+                , tween = createTween 1 0 model.previousTick 1000 Ease.inOutCubic
             }
 
         applyOverlapUpdates ( pid, tid ) model =
