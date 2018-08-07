@@ -34,6 +34,7 @@ maxRadius =
    TODO
    - Add functions to clear an entity from all component collections
    - Make it easier to add an entity that involves multiple components
+   - Make it easier to add an entity that only involves one component, because of the need to update nextEntityId
 -}
 
 
@@ -74,17 +75,21 @@ applyEasing tween t =
         y
 
 
+type alias Position =
+    ( Float, Float )
+
+
 type alias Ping =
     { color : Color
     , radius : Float
     , speed : Float
-    , position : ( Float, Float )
+    , position : Position
     }
 
 
 type alias Target =
     { color : Color
-    , position : ( Float, Float )
+    , position : Position
     , size : Float
     , value : Int
     }
@@ -245,7 +250,7 @@ handleClick px py model =
         if (Dict.size hitTargets > 0) then
             { model | targets = missedTargets, score = model.score + points }
         else
-            seedPing px py model
+            createFadingPing model ( px, py ) red 30000
 
 
 updateFades : Time -> Model -> Model
@@ -253,8 +258,8 @@ updateFades t model =
     { model | fades = Dict.map (\id f -> { f | intensity = applyEasing f.tween t }) model.fades }
 
 
-targetDetected : Target -> Ping -> Bool
-targetDetected target ping =
+isTargetDetected : Target -> Ping -> Bool
+isTargetDetected target ping =
     let
         ( px, py ) =
             ping.position
@@ -281,7 +286,7 @@ detectOverlaps : Model -> Model
 detectOverlaps model =
     let
         g pid ping ( tid, target ) =
-            if (targetDetected target ping) then
+            if (isTargetDetected target ping) then
                 [ ( pid, tid ) ]
             else
                 []
@@ -308,29 +313,41 @@ handleOverlaps model =
                 , tween = Tween 1 0 model.previousTick 1000 Ease.inOutCubic
             }
 
-        applyOverlapUpdates ( pid, tid ) ( pings, fades, entityId, overlaps ) =
+        applyOverlapUpdates ( pid, tid ) model =
             let
-                updatedPings =
-                    Dict.insert model.nextEntityId (Ping purple 1 100 ( 0.0, 0.0 )) pings
+                model1 =
+                    Dict.get tid model.targets
+                        |> Maybe.map (\target -> createFadingPing model target.position purple 1000)
+                        |> Maybe.withDefault model
 
                 updatedOverlaps =
-                    ( model.nextEntityId, tid ) :: overlaps
-
-                nextEntityId =
-                    entityId + 1
+                    ( model.nextEntityId, tid ) :: model1.overlaps
 
                 updatedFades =
-                    Dict.update tid (Maybe.map updateTargetFade) fades
-                        |> Dict.insert model.nextEntityId (FadeableIntensity 1 (Tween 1.0 0.0 model.previousTick 1000 Ease.linear))
-
-                -- this fade is related to the new ping above
+                    Dict.update tid (Maybe.map updateTargetFade) model1.fades
             in
-                ( updatedPings, updatedFades, nextEntityId, updatedOverlaps )
-
-        ( updatedPings, updatedFades, nextEntityId, overlaps ) =
-            List.foldl applyOverlapUpdates ( model.pings, model.fades, model.nextEntityId, model.overlaps ) model.newOverlaps
+                { model1
+                    | fades = updatedFades
+                    , overlaps = updatedOverlaps
+                }
     in
-        { model | pings = updatedPings, fades = updatedFades, nextEntityId = nextEntityId, overlaps = overlaps }
+        List.foldl applyOverlapUpdates model model.newOverlaps
+
+
+createFadingPing : Model -> Position -> Color -> Time -> Model
+createFadingPing model position color duration =
+    let
+        ping =
+            Ping color 10 100 position
+
+        fade =
+            FadeableIntensity 1 (Tween 1.0 0.0 model.previousTick duration Ease.linear)
+    in
+        { model
+            | pings = Dict.insert model.nextEntityId ping model.pings
+            , fades = Dict.insert model.nextEntityId fade model.fades
+            , nextEntityId = model.nextEntityId + 1
+        }
 
 
 growPings : Model -> Time -> Model
@@ -349,31 +366,6 @@ growPings m t =
             Dict.filter (\_ c -> c.radius < maxRadius) newPings
     in
         { m | pings = keptPings }
-
-
-seedPing : Float -> Float -> Model -> Model
-seedPing cx cy m =
-    let
-        startingRadius =
-            10
-
-        startingSpeed =
-            100
-
-        nextEntityId =
-            m.nextEntityId + 1
-
-        ping =
-            Ping red startingRadius startingSpeed ( cx, cy )
-
-        fade =
-            FadeableIntensity 1 (Tween 1.0 0.0 m.previousTick 10000 Ease.linear)
-    in
-        { m
-            | pings = Dict.insert m.nextEntityId ping m.pings
-            , fades = Dict.insert m.nextEntityId fade m.fades
-            , nextEntityId = nextEntityId
-        }
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
