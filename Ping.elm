@@ -27,9 +27,13 @@ maxRadius =
 
 
 {- If this was more of a component-entity-system (CES), a Ping or Target would just be
-   an integer, the entity id, and there would be components like a drawable component
-   which would contain data like shapes, colors, etc, a motion component with speed, a
-   system for modifying the drawable based on the speed...
+      an integer, the entity id, and there would be components like a drawable component
+      which would contain data like shapes, colors, etc, a motion component with speed, a
+      system for modifying the drawable based on the speed...
+
+   TODO
+   - Add functions to clear an entity from all component collections
+   - Make it easier to add an entity that involves multiple components
 -}
 
 
@@ -75,8 +79,6 @@ type alias Ping =
     , radius : Float
     , speed : Float
     , position : ( Float, Float )
-    , fadeSpeed : Float
-    , intensity : Float
     }
 
 
@@ -123,20 +125,27 @@ type alias Model =
 
 init : ( Model, Cmd Msg )
 init =
-    ( Model
-        1
-        Dict.empty
-        (Dict.singleton
+    let
+        initialEntityId =
             0
-            (Target blue ( 0, 0 ) 20 100)
+
+        initialTarget =
+            Target blue ( 0, 0 ) 20 100
+
+        targetFade =
+            FadeableIntensity 0.0 (Tween 0.0 0.0 0.0 0.0 Ease.linear)
+    in
+        ( Model
+            1
+            Dict.empty
+            (Dict.singleton 0 initialTarget)
+            (Dict.singleton 0 targetFade)
+            0
+            0
+            []
+            []
+        , Cmd.none
         )
-        (Dict.singleton 0 (FadeableIntensity 0.0 (Tween 0.0 0.0 0.0 0.0 Ease.linear)))
-        0
-        0
-        []
-        []
-    , Cmd.none
-    )
 
 
 type Msg
@@ -147,13 +156,13 @@ type Msg
 view : Model -> Html Msg
 view model =
     let
-        drawPing ping =
+        drawPing ( id, ping ) =
             Collage.circle ping.radius
-                |> outlined { defaultLine | color = (adjustAlpha ping.color ping.intensity) }
+                |> outlined { defaultLine | color = (adjustAlpha ping.color (Dict.get id model.fades |> Maybe.map .intensity |> Maybe.withDefault 1)) }
                 |> move ping.position
 
         pings =
-            List.map drawPing (Dict.values model.pings)
+            List.map drawPing (Dict.toList model.pings)
 
         drawTarget ( id, target ) =
             rect target.size target.size
@@ -192,7 +201,6 @@ update action model =
             case action of
                 Tick t ->
                     growPings model t
-                        |> fadePings t
                         |> updateFades t
                         |> detectOverlaps
                         |> handleOverlaps
@@ -300,14 +308,10 @@ handleOverlaps model =
                 , tween = Tween 1 0 model.previousTick 1000 Ease.inOutCubic
             }
 
-        updatePing p =
-            { p | intensity = p.intensity * 0.9 }
-
         applyOverlapUpdates ( pid, tid ) ( pings, fades, entityId, overlaps ) =
             let
                 updatedPings =
-                    Dict.update pid (Maybe.map updatePing) pings
-                        |> Dict.insert model.nextEntityId (Ping purple 1 100 ( 0.0, 0.0 ) 1 1)
+                    Dict.insert model.nextEntityId (Ping purple 1 100 ( 0.0, 0.0 )) pings
 
                 updatedOverlaps =
                     ( model.nextEntityId, tid ) :: overlaps
@@ -317,6 +321,9 @@ handleOverlaps model =
 
                 updatedFades =
                     Dict.update tid (Maybe.map updateTargetFade) fades
+                        |> Dict.insert model.nextEntityId (FadeableIntensity 1 (Tween 1.0 0.0 model.previousTick 1000 Ease.linear))
+
+                -- this fade is related to the new ping above
             in
                 ( updatedPings, updatedFades, nextEntityId, updatedOverlaps )
 
@@ -324,21 +331,6 @@ handleOverlaps model =
             List.foldl applyOverlapUpdates ( model.pings, model.fades, model.nextEntityId, model.overlaps ) model.newOverlaps
     in
         { model | pings = updatedPings, fades = updatedFades, nextEntityId = nextEntityId, overlaps = overlaps }
-
-
-fadePings : Time -> Model -> Model
-fadePings t model =
-    let
-        dt =
-            (t - model.previousTick) / Time.second
-
-        newPings =
-            Dict.map (\_ p -> { p | intensity = p.intensity - p.fadeSpeed * dt }) model.pings
-
-        alivePings =
-            Dict.filter (\_ p -> p.intensity > 0) newPings
-    in
-        { model | pings = alivePings }
 
 
 growPings : Model -> Time -> Model
@@ -368,17 +360,18 @@ seedPing cx cy m =
         startingSpeed =
             100
 
-        defaultFadeSpeed =
-            0
-
         nextEntityId =
             m.nextEntityId + 1
 
         ping =
-            Ping red startingRadius startingSpeed ( cx, cy ) defaultFadeSpeed 1
+            Ping red startingRadius startingSpeed ( cx, cy )
+
+        fade =
+            FadeableIntensity 1 (Tween 1.0 0.0 m.previousTick 10000 Ease.linear)
     in
         { m
             | pings = Dict.insert m.nextEntityId ping m.pings
+            , fades = Dict.insert m.nextEntityId fade m.fades
             , nextEntityId = nextEntityId
         }
 
