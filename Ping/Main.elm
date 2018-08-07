@@ -3,6 +3,7 @@ module Main exposing (..)
 import AnimationFrame exposing (..)
 import Collage exposing (..)
 import Color exposing (..)
+import Constants exposing (..)
 import Dict
 import Ease
 import Element exposing (toHtml)
@@ -11,19 +12,6 @@ import Mouse
 import Task exposing (Task)
 import Time exposing (..)
 import Window
-
-
-collageWidth =
-    800
-
-
-collageHeight =
-    600
-
-
-maxRadius =
-    1000
-
 
 
 {- If this was more of a component-entity-system (CES), a Ping or Target would

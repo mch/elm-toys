@@ -4,7 +4,8 @@
     "repository": "https://github.com/mch/elm-toys.git",
     "license": "BSD3",
     "source-directories": [
-        "."
+        ".",
+        "Ping"
     ],
     "exposed-modules": [],
     "dependencies": {
