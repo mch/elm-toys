@@ -3,16 +3,27 @@ module Main exposing (..)
 import AnimationFrame exposing (..)
 import Collage exposing (..)
 import Color exposing (..)
+import Common exposing (..)
 import Components exposing (..)
 import Constants exposing (..)
 import Dict
 import Ease
 import Element exposing (toHtml)
+import Entities exposing (..)
+import EntityId exposing (..)
+import FadeableIntensity exposing (..)
 import Html exposing (..)
 import Mouse
 import Task exposing (Task)
 import Time exposing (..)
+import Tween exposing (..)
 import Window
+
+
+{- Components -}
+
+import Ping exposing (..)
+import Target exposing (..)
 
 
 {- If this was more of a component-entity-system (CES), a Ping or Target would
@@ -26,45 +37,8 @@ import Window
    - Make it easier to add an entity that involves multiple components
    - Make it easier to add an entity that only involves one component, because of
      the need to update nextEntityId
+   - Entity life cycle: how do we know when to delete a component that is finished?
 -}
-
-
-{-| Id that uniquely identifies each entity across all components
--}
-type alias EntityId =
-    Int
-
-
-type alias Position =
-    ( Float, Float )
-
-
-
-{-
-   Components
--}
-
-
-type alias Ping =
-    { color : Color
-    , radius : Float
-    , speed : Float
-    , position : Position
-    }
-
-
-type alias Target =
-    { color : Color
-    , position : Position
-    , size : Float
-    , value : Int
-    }
-
-
-type alias FadeableIntensity =
-    { intensity : Float
-    , tween : Tween
-    }
 
 
 {-| By identifying the overlapping entities first, and modifying them later, we
@@ -82,6 +56,7 @@ type alias Model =
     , pings : Dict.Dict EntityId Ping
     , targets : Dict.Dict EntityId Target
     , fades : Dict.Dict EntityId FadeableIntensity
+    , componentData : ComponentData
     , score : Int
     , previousTick : Time
     , overlaps : Overlaps
@@ -126,7 +101,7 @@ createTarget position color model =
 
 init : ( Model, Cmd Msg )
 init =
-    ( Model 0 Dict.empty Dict.empty Dict.empty 0 0 [] []
+    ( Model 0 Dict.empty Dict.empty Dict.empty Components.init 0 0 [] []
         |> createTarget ( 0, 0 ) blue
     , Cmd.none
     )
@@ -232,11 +207,6 @@ handleClick px py model =
             createFadingPing ( px, py ) red 30000 model
 
 
-updateFades : Time -> Model -> Model
-updateFades t model =
-    { model | fades = Dict.map (\id f -> { f | intensity = applyEasing f.tween t }) model.fades }
-
-
 isTargetDetected : Target -> Ping -> Bool
 isTargetDetected target ping =
     let
@@ -259,6 +229,14 @@ isTargetDetected target ping =
             ping.radius + target.size
     in
         d > min && d < max
+
+
+{-| This System detects overlapping pings and other objects and updates all
+interacting entities as needed.
+-}
+updateFades : Time -> Model -> Model
+updateFades t model =
+    { model | fades = Dict.map (\id f -> { f | intensity = applyEasing f.tween t }) model.fades }
 
 
 detectOverlaps : Model -> Model

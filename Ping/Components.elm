@@ -1,59 +1,45 @@
 module Components exposing (..)
 
+import Dict exposing (..)
 import Ease
+import EntityId exposing (..)
+import FadeableIntensity exposing (..)
+import Ping exposing (..)
+import Target exposing (..)
 import Time exposing (..)
 
 
-type alias Tween =
-    { start : Float
-    , end : Float
-    , startTime : Time
-    , duration : Time
-    , f : Ease.Easing
-    , value : Float -- Should the component contain this??
+{-| A data structure holding all of the component data in the game.
+
+Not sure that the nextEntityId belongs here...
+
+-}
+type alias ComponentData =
+    { fades : Dict.Dict EntityId FadeableIntensity
+    , pings : Dict.Dict EntityId Ping
+    , targets : Dict.Dict EntityId Target
+    , nextEntityId : EntityId
     }
 
 
-createTween : Float -> Float -> Time -> Time -> Ease.Easing -> Tween
-createTween start end startTime duration f =
-    Tween start end startTime duration f 0.0
+init : ComponentData
+init =
+    ComponentData
+        Dict.empty
+        Dict.empty
+        Dict.empty
+        0
 
 
-applyEasing : Tween -> Time -> Float
-applyEasing tween t =
-    let
-        x =
-            (t - tween.startTime) / tween.duration
-
-        b =
-            tween.start
-
-        m =
-            tween.end - tween.start
-
-        y =
-            if t > tween.startTime + tween.duration then
-                tween.end
-            else
-                (tween.f x) * m + b
-    in
-        y
-
-
-{-| Applies the easing function for the tween, normalizing inputs and
-denormalizing outputs.
+{-| updateComponents needs both an absolute time and a time delta, since
+different components need different timing for their updates. Updating components
+in general might be better as individual systems.
 -}
-updateTween : Tween -> Time -> Tween
-updateTween tween t =
-    { tween | value = applyEasing tween t }
+updateComponents : ComponentData -> Time -> ComponentData
+updateComponents components time =
+    { components
+        | fades = Dict.map (\_ f -> updateFade f time) components.fades
+        , pings = Dict.map (\_ p -> updatePing p time) components.pings
 
-
-type Component
-    = TweenComponent Tween
-
-
-updateComponent : Component -> Time -> Component
-updateComponent component time =
-    case component of
-        TweenComponent tween ->
-            TweenComponent (updateTween tween time)
+        --, targets = Dict.map (\_ t -> updateTargets t time) components.targets
+    }
