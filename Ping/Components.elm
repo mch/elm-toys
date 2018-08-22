@@ -28,18 +28,24 @@ init =
         Dict.empty
         Dict.empty
         Dict.empty
-        0
+        100000
+
+
+updatePings : Time -> Dict.Dict EntityId Ping -> Dict.Dict EntityId Ping
+updatePings dt pings =
+    Dict.map (\_ p -> updatePing p dt) pings
+        |> Dict.filter (\_ p -> p.radius < maxRadius)
 
 
 {-| updateComponents needs both an absolute time and a time delta, since
 different components need different timing for their updates. Updating components
 in general might be better as individual systems.
 -}
-updateComponents : ComponentData -> Time -> ComponentData
-updateComponents components time =
+updateComponents : ComponentData -> Time -> Time -> ComponentData
+updateComponents components time dt =
     { components
         | fades = Dict.map (\_ f -> updateFade f time) components.fades
-        , pings = Dict.map (\_ p -> updatePing p time) components.pings
+        , pings = updatePings dt components.pings
 
         --, targets = Dict.map (\_ t -> updateTargets t time) components.targets
     }

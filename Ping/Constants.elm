@@ -7,7 +7,3 @@ collageWidth =
 
 collageHeight =
     600
-
-
-maxRadius =
-    1000

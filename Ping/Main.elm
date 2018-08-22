@@ -53,9 +53,6 @@ type alias Overlaps =
 
 type alias Model =
     { nextEntityId : EntityId
-    , pings : Dict.Dict EntityId Ping
-    , targets : Dict.Dict EntityId Target
-    , fades : Dict.Dict EntityId FadeableIntensity
     , componentData : ComponentData
     , score : Int
     , previousTick : Time
@@ -64,47 +61,15 @@ type alias Model =
     }
 
 
-createFadingPing : Position -> Color -> Time -> Model -> Model
-createFadingPing position color duration model =
-    let
-        ping =
-            Ping color 10 100 position
-
-        fade =
-            FadeableIntensity 1 (createTween 1.0 0.0 model.previousTick duration Ease.linear)
-    in
-        { model
-            | pings = Dict.insert model.nextEntityId ping model.pings
-            , fades = Dict.insert model.nextEntityId fade model.fades
-            , nextEntityId = model.nextEntityId + 1
-        }
-
-
-createTarget : Position -> Color -> Model -> Model
-createTarget position color model =
-    let
-        id =
-            model.nextEntityId
-
-        target =
-            Target color position 20 100
-
-        fade =
-            FadeableIntensity 0.0 (createTween 0.0 0.0 0.0 0.0 Ease.linear)
-    in
-        { model
-            | targets = Dict.insert id target model.targets
-            , fades = Dict.insert id fade model.fades
-            , nextEntityId = id + 1
-        }
-
-
 init : ( Model, Cmd Msg )
 init =
-    ( Model 0 Dict.empty Dict.empty Dict.empty Components.init 0 0 [] []
-        |> createTarget ( 0, 0 ) blue
-    , Cmd.none
-    )
+    let
+        empty =
+            Model 0 Components.init 0 0 [] []
+    in
+        ( { empty | componentData = createTarget ( 0, 0 ) blue empty.componentData }
+        , Cmd.none
+        )
 
 
 type Msg
@@ -117,19 +82,19 @@ view model =
     let
         drawPing ( id, ping ) =
             Collage.circle ping.radius
-                |> outlined { defaultLine | color = (adjustAlpha ping.color (Dict.get id model.fades |> Maybe.map .intensity |> Maybe.withDefault 1)) }
+                |> outlined { defaultLine | color = (adjustAlpha ping.color (Dict.get id model.componentData.fades |> Maybe.map .intensity |> Maybe.withDefault 1)) }
                 |> move ping.position
 
         pings =
-            List.map drawPing (Dict.toList model.pings)
+            List.map drawPing (Dict.toList model.componentData.pings)
 
         drawTarget ( id, target ) =
             rect target.size target.size
-                |> filled (adjustAlpha target.color (Dict.get id model.fades |> Maybe.map .intensity |> Maybe.withDefault 1))
+                |> filled (adjustAlpha target.color (Dict.get id model.componentData.fades |> Maybe.map .intensity |> Maybe.withDefault 1))
                 |> move target.position
 
         targets =
-            List.map drawTarget (Dict.toList model.targets)
+            List.map drawTarget (Dict.toList model.componentData.targets)
 
         gameBoard =
             collage collageWidth collageHeight (pings ++ targets)
@@ -150,6 +115,15 @@ adjustAlpha c i =
         Color.rgba rgb.red rgb.green rgb.blue i
 
 
+updateComponentData : Time -> Model -> Model
+updateComponentData t model =
+    let
+        dt =
+            (t - model.previousTick) / Time.second
+    in
+        { model | componentData = updateComponents model.componentData t dt }
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
     let
@@ -159,8 +133,8 @@ update action model =
         newModel =
             case action of
                 Tick t ->
-                    growPings model t
-                        |> updateFades t
+                    model
+                        |> updateComponentData t
                         |> detectOverlaps
                         |> handleOverlaps
                         |> updatePreviousTime t
@@ -188,7 +162,7 @@ handleClick px py model =
                 ( hit, t )
 
         identifiedTargets =
-            Dict.map (\_ t -> detectTarget t) model.targets
+            Dict.map (\_ t -> detectTarget t) model.componentData.targets
 
         hitTargets =
             Dict.map (\_ t -> Tuple.second t) (Dict.filter (\_ ( hit, t ) -> hit) identifiedTargets)
@@ -199,12 +173,17 @@ handleClick px py model =
         points =
             Dict.foldl (\_ t points -> points + t.value) 0 hitTargets
 
+        componentData =
+            model.componentData
+
         -- TODO visual and audio reward for hitting a target
+        data =
+            { componentData | targets = missedTargets }
     in
         if (Dict.size hitTargets > 0) then
-            { model | targets = missedTargets, score = model.score + points }
+            { model | componentData = data, score = model.score + points }
         else
-            createFadingPing ( px, py ) red 30000 model
+            { model | componentData = createFadingPing model.componentData model.previousTick ( px, py ) red 30000 }
 
 
 isTargetDetected : Target -> Ping -> Bool
@@ -234,11 +213,6 @@ isTargetDetected target ping =
 {-| This System detects overlapping pings and other objects and updates all
 interacting entities as needed.
 -}
-updateFades : Time -> Model -> Model
-updateFades t model =
-    { model | fades = Dict.map (\id f -> { f | intensity = applyEasing f.tween t }) model.fades }
-
-
 detectOverlaps : Model -> Model
 detectOverlaps model =
     let
@@ -249,10 +223,10 @@ detectOverlaps model =
                 []
 
         f ( index, ping ) =
-            List.concat (List.map (g index ping) (Dict.toList model.targets))
+            List.concat (List.map (g index ping) (Dict.toList model.componentData.targets))
 
         overlaps =
-            List.concat (List.map f (Dict.toList model.pings))
+            List.concat (List.map f (Dict.toList model.componentData.pings))
 
         newOverlaps =
             List.filter (\x -> not (List.member x model.overlaps)) overlaps
@@ -273,42 +247,28 @@ handleOverlaps model =
         applyOverlapUpdates ( pid, tid ) model =
             let
                 model1 =
-                    Dict.get tid model.targets
-                        |> Maybe.map (\target -> createFadingPing target.position purple 1000 model)
+                    Dict.get tid model.componentData.targets
+                        |> Maybe.map (\target -> { model | componentData = createFadingPing model.componentData model.previousTick target.position purple 1000 })
                         |> Maybe.withDefault model
 
                 updatedOverlaps =
-                    ( model.nextEntityId, tid ) :: model1.overlaps
+                    ( model.componentData.nextEntityId, tid ) :: model1.overlaps
 
                 updatedFades =
-                    Dict.update tid (Maybe.map updateTargetFade) model1.fades
+                    Dict.update tid (Maybe.map updateTargetFade) model1.componentData.fades
+
+                componentData =
+                    model1.componentData
+
+                componentData1 =
+                    { componentData | fades = updatedFades }
             in
                 { model1
-                    | fades = updatedFades
+                    | componentData = componentData1
                     , overlaps = updatedOverlaps
                 }
     in
         List.foldl applyOverlapUpdates model model.newOverlaps
-
-
-{-| This would be the ping component update function.
--}
-growPings : Model -> Time -> Model
-growPings m t =
-    let
-        dt =
-            (t - m.previousTick) / Time.second
-
-        growPing c =
-            { c | radius = c.radius + c.speed * dt }
-
-        newPings =
-            Dict.map (\_ p -> growPing p) m.pings
-
-        keptPings =
-            Dict.filter (\_ c -> c.radius < maxRadius) newPings
-    in
-        { m | pings = keptPings }
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
