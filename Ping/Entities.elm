@@ -16,12 +16,13 @@ import EntityId exposing (..)
 import Tween exposing (..)
 
 
--- Entities
+-- Components
 
 import FadeableIntensity exposing (..)
 import Ping exposing (..)
 import Target exposing (..)
 import Weapon exposing (..)
+import Health exposing (..)
 
 
 {-| Create a ping that fades out over a certain amount of time.
@@ -73,6 +74,7 @@ createTarget position color data =
         { data
             | targets = Dict.insert id target data.targets
             , fades = Dict.insert id fade data.fades
+            , health = Dict.insert id (Health 100) data.health
             , nextEntityId = id + 1
         }
 
