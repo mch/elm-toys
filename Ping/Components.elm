@@ -41,8 +41,8 @@ updatePings dt pings =
 different components need different timing for their updates. Updating components
 in general might be better as individual systems.
 -}
-updateComponents : ComponentData -> Time -> Time -> ComponentData
-updateComponents components time dt =
+updateComponents : Time -> Time -> ComponentData -> ComponentData
+updateComponents time dt components =
     { components
         | fades = Dict.map (\_ f -> updateFade f time) components.fades
         , pings = updatePings dt components.pings

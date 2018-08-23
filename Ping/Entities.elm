@@ -39,6 +39,20 @@ createFadingPing data startTime position color duration =
         }
 
 
+{-| Creates a ping reflecting from a target
+-}
+createSecondaryPing : ComponentData -> Time -> Position -> ComponentData
+createSecondaryPing data startTime position =
+    let
+        pingColour =
+            purple
+
+        pingDurationMs =
+            1000
+    in
+        createFadingPing data startTime position pingColour pingDurationMs
+
+
 createTarget : Position -> Color -> ComponentData -> ComponentData
 createTarget position color data =
     let
@@ -56,3 +70,17 @@ createTarget position color data =
             , fades = Dict.insert id fade data.fades
             , nextEntityId = id + 1
         }
+
+
+{-| Change the opacity of the target to make it visible, fading out over time
+-}
+pingTarget : EntityId -> Time -> ComponentData -> ComponentData
+pingTarget targetId time data =
+    let
+        updateTargetFade f =
+            { f
+                | intensity = 1
+                , tween = createTween 1 0 time 1000 Ease.inOutCubic
+            }
+    in
+        { data | fades = Dict.update targetId (Maybe.map updateTargetFade) data.fades }

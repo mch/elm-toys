@@ -1,23 +1,30 @@
 module Main exposing (..)
 
+-- External Modules
+
 import AnimationFrame exposing (..)
 import Collage exposing (..)
 import Color exposing (..)
-import Common exposing (..)
-import Components exposing (..)
-import Constants exposing (..)
 import Dict
 import Ease
 import Element exposing (toHtml)
-import Entities exposing (..)
-import EntityId exposing (..)
-import FadeableIntensity exposing (..)
 import Html exposing (..)
 import Mouse
 import Task exposing (Task)
 import Time exposing (..)
-import Tween exposing (..)
 import Window
+
+
+-- Internal Modules
+
+import Common exposing (..)
+import Components exposing (..)
+import Constants exposing (..)
+import Entities exposing (..)
+import EntityId exposing (..)
+import FadeableIntensity exposing (..)
+import Tween exposing (..)
+import Systems exposing (..)
 
 
 {- Components -}
@@ -41,23 +48,12 @@ import Target exposing (..)
 -}
 
 
-{-| By identifying the overlapping entities first, and modifying them later, we
-can perform other actions like creating new entities. This state is related
-specifically to the System that detects overlapping entities. It's not really a
-component, so I'm not totally sure what to do with it. Systems kind of need a
-mechanism to keep track of their own state.
--}
-type alias Overlaps =
-    List ( EntityId, EntityId )
-
-
 type alias Model =
     { nextEntityId : EntityId
     , componentData : ComponentData
+    , systemData : SystemData
     , score : Int
     , previousTick : Time
-    , overlaps : Overlaps
-    , newOverlaps : Overlaps
     }
 
 
@@ -65,7 +61,7 @@ init : ( Model, Cmd Msg )
 init =
     let
         empty =
-            Model 0 Components.init 0 0 [] []
+            Model 0 Components.init Systems.init 0 0
     in
         ( { empty | componentData = createTarget ( 0, 0 ) blue empty.componentData }
         , Cmd.none
@@ -121,7 +117,22 @@ updateComponentData t model =
         dt =
             (t - model.previousTick) / Time.second
     in
-        { model | componentData = updateComponents model.componentData t dt }
+        { model | componentData = updateComponents t dt model.componentData }
+
+
+runSystems : Time -> Model -> Model
+runSystems t model =
+    let
+        dt =
+            (t - model.previousTick) / Time.second
+
+        ( updatedSystems, updatedComponents ) =
+            Systems.runSystems t dt ( model.systemData, model.componentData )
+    in
+        { model
+            | componentData = updatedComponents
+            , systemData = updatedSystems
+        }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -135,8 +146,7 @@ update action model =
                 Tick t ->
                     model
                         |> updateComponentData t
-                        |> detectOverlaps
-                        |> handleOverlaps
+                        |> runSystems t
                         |> updatePreviousTime t
 
                 Click ( px, py ) ->
@@ -184,91 +194,6 @@ handleClick px py model =
             { model | componentData = data, score = model.score + points }
         else
             { model | componentData = createFadingPing model.componentData model.previousTick ( px, py ) red 30000 }
-
-
-isTargetDetected : Target -> Ping -> Bool
-isTargetDetected target ping =
-    let
-        ( px, py ) =
-            ping.position
-
-        ( tx, ty ) =
-            target.position
-
-        ( dx, dy ) =
-            ( abs (px - tx), abs (py - ty) )
-
-        d =
-            sqrt (dx ^ 2 + dy ^ 2)
-
-        min =
-            ping.radius - target.size
-
-        max =
-            ping.radius + target.size
-    in
-        d > min && d < max
-
-
-{-| This System detects overlapping pings and other objects and updates all
-interacting entities as needed.
--}
-detectOverlaps : Model -> Model
-detectOverlaps model =
-    let
-        g pid ping ( tid, target ) =
-            if (isTargetDetected target ping) then
-                [ ( pid, tid ) ]
-            else
-                []
-
-        f ( index, ping ) =
-            List.concat (List.map (g index ping) (Dict.toList model.componentData.targets))
-
-        overlaps =
-            List.concat (List.map f (Dict.toList model.componentData.pings))
-
-        newOverlaps =
-            List.filter (\x -> not (List.member x model.overlaps)) overlaps
-    in
-        { model | overlaps = overlaps, newOverlaps = newOverlaps }
-
-
-handleOverlaps : Model -> Model
-handleOverlaps model =
-    -- Create new ping, mark it as already overlapping with the target that caused it.
-    let
-        updateTargetFade f =
-            { f
-                | intensity = 1
-                , tween = createTween 1 0 model.previousTick 1000 Ease.inOutCubic
-            }
-
-        applyOverlapUpdates ( pid, tid ) model =
-            let
-                model1 =
-                    Dict.get tid model.componentData.targets
-                        |> Maybe.map (\target -> { model | componentData = createFadingPing model.componentData model.previousTick target.position purple 1000 })
-                        |> Maybe.withDefault model
-
-                updatedOverlaps =
-                    ( model.componentData.nextEntityId, tid ) :: model1.overlaps
-
-                updatedFades =
-                    Dict.update tid (Maybe.map updateTargetFade) model1.componentData.fades
-
-                componentData =
-                    model1.componentData
-
-                componentData1 =
-                    { componentData | fades = updatedFades }
-            in
-                { model1
-                    | componentData = componentData1
-                    , overlaps = updatedOverlaps
-                }
-    in
-        List.foldl applyOverlapUpdates model model.newOverlaps
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
