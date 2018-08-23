@@ -54,6 +54,7 @@ type alias Model =
     , systemData : SystemData
     , score : Int
     , previousTick : Time
+    , lastClick : Maybe Position
     }
 
 
@@ -61,9 +62,9 @@ init : ( Model, Cmd Msg )
 init =
     let
         empty =
-            Model 0 Components.init Systems.init 0 0
+            Model 0 Components.init Systems.init 0 0 Nothing
     in
-        ( { empty | componentData = createTarget ( 0, 0 ) blue empty.componentData }
+        ( { empty | componentData = createTarget ( 100, 100 ) blue empty.componentData }
         , Cmd.none
         )
 
@@ -92,8 +93,15 @@ view model =
         targets =
             List.map drawTarget (Dict.toList model.componentData.targets)
 
+        drawLaser ( id, laser ) =
+            segment laser.start laser.end
+                |> traced defaultLine
+
+        lasers =
+            List.map drawLaser (Dict.toList model.componentData.lasers)
+
         gameBoard =
-            collage collageWidth collageHeight (pings ++ targets)
+            collage collageWidth collageHeight (pings ++ targets ++ lasers)
                 |> toHtml
     in
         div []
@@ -135,6 +143,19 @@ runSystems t model =
         }
 
 
+updateFromInput : Time -> Model -> Model
+updateFromInput time model =
+    case model.lastClick of
+        Just position ->
+            { model
+                | componentData = createLaser time ( 0.0, 0.0 ) position model.componentData
+                , lastClick = Nothing
+            }
+
+        Nothing ->
+            model
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
     let
@@ -147,6 +168,7 @@ update action model =
                     model
                         |> updateComponentData t
                         |> runSystems t
+                        |> updateFromInput t
                         |> updatePreviousTime t
 
                 Click ( px, py ) ->
@@ -188,12 +210,17 @@ handleClick px py model =
 
         -- TODO visual and audio reward for hitting a target
         data =
-            { componentData | targets = missedTargets }
+            { componentData
+                | targets = missedTargets
+            }
+
+        model2 =
+            { model | lastClick = Just ( px, py ) }
     in
         if (Dict.size hitTargets > 0) then
-            { model | componentData = data, score = model.score + points }
+            { model2 | componentData = data, score = model.score + points }
         else
-            { model | componentData = createFadingPing model.componentData model.previousTick ( px, py ) red 30000 }
+            { model2 | componentData = createFadingPing model.componentData model.previousTick ( px, py ) red 30000 }
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )

@@ -21,8 +21,11 @@ import Tween exposing (..)
 import FadeableIntensity exposing (..)
 import Ping exposing (..)
 import Target exposing (..)
+import Weapon exposing (..)
 
 
+{-| Create a ping that fades out over a certain amount of time.
+-}
 createFadingPing : ComponentData -> Time -> Position -> Color -> Time -> ComponentData
 createFadingPing data startTime position color duration =
     let
@@ -53,6 +56,8 @@ createSecondaryPing data startTime position =
         createFadingPing data startTime position pingColour pingDurationMs
 
 
+{-| Create a target that can take damage at a certain point in space.
+-}
 createTarget : Position -> Color -> ComponentData -> ComponentData
 createTarget position color data =
     let
@@ -84,3 +89,14 @@ pingTarget targetId time data =
             }
     in
         { data | fades = Dict.update targetId (Maybe.map updateTargetFade) data.fades }
+
+
+{-| Create a laser beam that does some damage to a target if one exists at the
+end position of the beam.
+-}
+createLaser : Time -> Position -> Position -> ComponentData -> ComponentData
+createLaser time startPosition endPosition data =
+    { data
+        | lasers = Dict.insert data.nextEntityId (Laser startPosition endPosition 100 (time + 500)) data.lasers
+        , nextEntityId = data.nextEntityId + 1
+    }
