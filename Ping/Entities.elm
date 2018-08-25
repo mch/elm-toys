@@ -25,6 +25,17 @@ import Weapon exposing (..)
 import Health exposing (..)
 
 
+-- Should be able to have an API to make it easier to build up entities from
+-- multiple components. It would be cool if it were more polymorphic somehow.
+-- Maybe a union type for all the component data.
+--
+-- createFadingPing ... =
+--     data
+--         |> addComponent (Ping color 10 100 position)
+--         |> addComponent (FadeableIntensity ...)
+--         |> incrementEntityId
+
+
 {-| Create a ping that fades out over a certain amount of time.
 -}
 createFadingPing : ComponentData -> Time -> Position -> Color -> Time -> ComponentData
@@ -66,7 +77,7 @@ createTarget position color data =
             data.nextEntityId
 
         target =
-            Target color position 20 100
+            Target color position 20 100 100
 
         fade =
             FadeableIntensity 0.0 (createTween 0.0 0.0 0.0 0.0 Ease.linear)
@@ -75,6 +86,7 @@ createTarget position color data =
             | targets = Dict.insert id target data.targets
             , fades = Dict.insert id fade data.fades
             , health = Dict.insert id (Health 100) data.health
+            , aabb = Dict.insert id (AABB 20 20) data.aabb
             , nextEntityId = id + 1
         }
 
@@ -99,6 +111,6 @@ end position of the beam.
 createLaser : Time -> Position -> Position -> ComponentData -> ComponentData
 createLaser time startPosition endPosition data =
     { data
-        | lasers = Dict.insert data.nextEntityId (Laser startPosition endPosition 100 (time + 500)) data.lasers
+        | lasers = Dict.insert data.nextEntityId (Laser startPosition endPosition 1 (time + 500)) data.lasers
         , nextEntityId = data.nextEntityId + 1
     }

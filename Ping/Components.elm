@@ -6,6 +6,7 @@ import Dict exposing (..)
 import Ease
 import Time exposing (..)
 import Set
+import Color exposing (..)
 
 
 -- Internal modules
@@ -16,12 +17,64 @@ import Health exposing (..)
 import Ping exposing (..)
 import Target exposing (..)
 import Weapon exposing (..)
+import Tween exposing (..)
+import Common exposing (..)
+
+
+{-| Possible union type for component data. Could create type alias' for the actual
+data in different files.
+
+Does this make it easier or harder to add components? Would make an API that
+takes generic components possible, either for adding or removing components from
+entities. Or removing all components for a given entity, e.g. if it is dead.
+
+-}
+type Component
+    = Transformation
+        { translate : ( Float, Float )
+        , scale : ( Float, Float )
+        , rotate : Float
+        }
+    | AABB2 { width : Float, height : Float }
+    | FadeableIntensity2
+        { intensity : Float
+        , tween : Tween
+        }
+    | Health2 { health : Int }
+    | Ping2
+        { color : Color
+        , radius : Float
+        , speed : Float
+        , position : Position
+        }
+    | Target2
+        { color : Color
+        , position : Position
+        , size : Float
+        , value : Int
+        }
+    | Laser2
+        { start : Position
+        , end : Position
+        , damageRate : Float -- damage per second inflicted by this weapon
+        , endTime : Float
+        }
+
+
+{-| Axis aligned bounding box
+-}
+type alias AABB =
+    { width : Float
+    , height : Float
+    }
 
 
 {-| A data structure holding all of the component data in the game.
 
 Not sure that the nextEntityId belongs here, but since it needs to be updated if
 a new entity is added, it makes sense for it to be here.
+
+It would be nice if adding a component didn't require changing this or init below.
 
 -}
 type alias ComponentData =
@@ -30,13 +83,17 @@ type alias ComponentData =
     , targets : Dict.Dict EntityId Target
     , lasers : Dict.Dict EntityId Laser
     , health : Dict.Dict EntityId Health
+    , aabb : Dict.Dict EntityId AABB
     , nextEntityId : EntityId
     }
 
 
+{-| Set of the component data.
+-}
 init : ComponentData
 init =
     ComponentData
+        Dict.empty
         Dict.empty
         Dict.empty
         Dict.empty

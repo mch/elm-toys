@@ -10,9 +10,13 @@ import Time exposing (..)
 import Components exposing (..)
 import EntityId exposing (..)
 import PingTargets
+import DamageTargets
 
 
-{-| System data
+{-| System data: I wonder if this should just be a "special" component & entity.
+
+Threading this in is awkward.
+
 -}
 type alias SystemData =
     { pingedTargets : PingTargets.Overlaps
@@ -29,4 +33,4 @@ runSystems time dt ( systemData, componentData ) =
         ( updatedPingedTargets, updatedComponentData ) =
             PingTargets.run time dt ( systemData.pingedTargets, componentData )
     in
-        ( { systemData | pingedTargets = updatedPingedTargets }, updatedComponentData )
+        ( { systemData | pingedTargets = updatedPingedTargets }, DamageTargets.run time dt updatedComponentData )

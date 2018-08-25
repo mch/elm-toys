@@ -12,4 +12,5 @@ type alias Target =
     , position : Position
     , size : Float
     , value : Int
+    , health : Float
     }

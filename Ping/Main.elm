@@ -179,48 +179,10 @@ update action model =
 
 handleClick : Float -> Float -> Model -> Model
 handleClick px py model =
-    let
-        detectTarget t =
-            let
-                ( tx, ty ) =
-                    t.position
-
-                halfSize =
-                    t.size / 2
-
-                hit =
-                    px > tx - halfSize && px < tx + halfSize && py > ty - halfSize && py < ty + halfSize
-            in
-                ( hit, t )
-
-        identifiedTargets =
-            Dict.map (\_ t -> detectTarget t) model.componentData.targets
-
-        hitTargets =
-            Dict.map (\_ t -> Tuple.second t) (Dict.filter (\_ ( hit, t ) -> hit) identifiedTargets)
-
-        missedTargets =
-            Dict.map (\_ t -> Tuple.second t) (Dict.filter (\_ ( hit, t ) -> not hit) identifiedTargets)
-
-        points =
-            Dict.foldl (\_ t points -> points + t.value) 0 hitTargets
-
-        componentData =
-            model.componentData
-
-        -- TODO visual and audio reward for hitting a target
-        data =
-            { componentData
-                | targets = missedTargets
-            }
-
-        model2 =
-            { model | lastClick = Just ( px, py ) }
-    in
-        if (Dict.size hitTargets > 0) then
-            { model2 | componentData = data, score = model.score + points }
-        else
-            { model2 | componentData = createFadingPing model.componentData model.previousTick ( px, py ) red 30000 }
+    { model
+        | componentData = createFadingPing model.componentData model.previousTick ( px, py ) red 30000
+        , lastClick = Just ( px, py )
+    }
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
