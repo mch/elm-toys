@@ -5,10 +5,12 @@ module Main exposing (..)
 import AnimationFrame exposing (..)
 import Collage exposing (..)
 import Color exposing (..)
+import Debug
 import Dict
 import Ease
 import Element exposing (toHtml)
 import Html exposing (..)
+import Keyboard
 import Mouse
 import Task exposing (Task)
 import Time exposing (..)
@@ -72,6 +74,7 @@ init =
 type Msg
     = Tick Time
     | Click ( Float, Float )
+    | KeyDown Keyboard.KeyCode
 
 
 view : Model -> Html Msg
@@ -100,8 +103,12 @@ view model =
         lasers =
             List.map drawLaser (Dict.toList model.componentData.lasers)
 
+        player =
+            Collage.circle 20
+                |> filled green
+
         gameBoard =
-            collage collageWidth collageHeight (pings ++ targets ++ lasers)
+            collage collageWidth collageHeight (pings ++ targets ++ lasers ++ [ player ])
                 |> toHtml
     in
         div []
@@ -173,16 +180,30 @@ update action model =
 
                 Click ( px, py ) ->
                     handleClick px py model
+
+                KeyDown code ->
+                    handleKey code model
     in
         ( newModel, Cmd.none )
 
 
 handleClick : Float -> Float -> Model -> Model
 handleClick px py model =
-    { model
-        | componentData = createFadingPing model.componentData model.previousTick ( px, py ) red 30000
-        , lastClick = Just ( px, py )
-    }
+    { model | lastClick = Just ( px, py ) }
+
+
+handleKey code model =
+    -- e: 69
+    -- w: 87
+    -- a: 65
+    -- s: 83
+    -- d: 68
+    if (Debug.log "keycode:" code) == 69 then
+        { model
+            | componentData = createFadingPing model.componentData model.previousTick ( 0, 0 ) red 30000
+        }
+    else
+        model
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
@@ -205,5 +226,6 @@ main =
                 Sub.batch
                     [ AnimationFrame.times Tick
                     , clickSub
+                    , Keyboard.downs KeyDown
                     ]
         }
