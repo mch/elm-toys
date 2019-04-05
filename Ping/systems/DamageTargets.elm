@@ -32,6 +32,11 @@ import Weapon exposing (..)
              *---------* yB1
              xB1       xB2
 
+Alternate implementation idea
+
+This should be moved into the AABB component, where each component has a list of
+entities it overlaps with, and probably the time they started to overlap.
+
 -}
 aabbIntersection ( xA, yA ) bbA ( xB, yB ) bbB =
     let

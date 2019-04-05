@@ -60,6 +60,10 @@ type alias Model =
     }
 
 
+
+{- Initialize the model and send initial commands. -}
+
+
 init : ( Model, Cmd Msg )
 init =
     let
@@ -71,34 +75,32 @@ init =
         )
 
 
+
+{- Messages that can come into the update function. -}
+
+
 type Msg
     = Tick Time
     | Click ( Float, Float )
     | KeyDown Keyboard.KeyCode
 
 
+
+{- View the model as an HTML page and helper functions -}
+
+
 view : Model -> Html Msg
 view model =
     let
-        drawPing ( id, ping ) =
-            Collage.circle ping.radius
-                |> outlined { defaultLine | color = (adjustAlpha ping.color (Dict.get id model.componentData.fades |> Maybe.map .intensity |> Maybe.withDefault 1)) }
-                |> move ping.position
-
         pings =
-            List.map drawPing (Dict.toList model.componentData.pings)
-
-        drawTarget ( id, target ) =
-            rect target.size target.size
-                |> filled (adjustAlpha target.color (Dict.get id model.componentData.fades |> Maybe.map .intensity |> Maybe.withDefault 1))
-                |> move target.position
+            List.map
+                (drawPing model.componentData.fades)
+                (Dict.toList model.componentData.pings)
 
         targets =
-            List.map drawTarget (Dict.toList model.componentData.targets)
-
-        drawLaser ( id, laser ) =
-            segment laser.start laser.end
-                |> traced defaultLine
+            List.map
+                (drawTarget model.componentData.fades)
+                (Dict.toList model.componentData.targets)
 
         lasers =
             List.map drawLaser (Dict.toList model.componentData.lasers)
@@ -117,6 +119,35 @@ view model =
             ]
 
 
+drawPing fades ( id, ping ) =
+    let
+        fade =
+            Dict.get id fades
+                |> Maybe.map .intensity
+                |> Maybe.withDefault 1
+    in
+        Collage.circle ping.radius
+            |> outlined { defaultLine | color = (adjustAlpha ping.color fade) }
+            |> move ping.position
+
+
+drawTarget fades ( id, target ) =
+    let
+        fade =
+            Dict.get id fades
+                |> Maybe.map .intensity
+                |> Maybe.withDefault 1
+    in
+        rect target.size target.size
+            |> filled (adjustAlpha target.color fade)
+            |> move target.position
+
+
+drawLaser ( id, laser ) =
+    segment laser.start laser.end
+        |> traced defaultLine
+
+
 adjustAlpha : Color -> Float -> Color
 adjustAlpha c i =
     let
@@ -126,41 +157,8 @@ adjustAlpha c i =
         Color.rgba rgb.red rgb.green rgb.blue i
 
 
-updateComponentData : Time -> Model -> Model
-updateComponentData t model =
-    let
-        dt =
-            (t - model.previousTick) / Time.second
-    in
-        { model | componentData = updateComponents t dt model.componentData }
 
-
-runSystems : Time -> Model -> Model
-runSystems t model =
-    let
-        dt =
-            (t - model.previousTick) / Time.second
-
-        ( updatedSystems, updatedComponents ) =
-            Systems.runSystems t dt ( model.systemData, model.componentData )
-    in
-        { model
-            | componentData = updatedComponents
-            , systemData = updatedSystems
-        }
-
-
-updateFromInput : Time -> Model -> Model
-updateFromInput time model =
-    case model.lastClick of
-        Just position ->
-            { model
-                | componentData = createLaser time ( 0.0, 0.0 ) position model.componentData
-                , lastClick = Nothing
-            }
-
-        Nothing ->
-            model
+{- Update the model by responding to incoming messages. -}
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -185,6 +183,43 @@ update action model =
                     handleKey code model
     in
         ( newModel, Cmd.none )
+
+
+updateFromInput : Time -> Model -> Model
+updateFromInput time model =
+    case model.lastClick of
+        Just position ->
+            { model
+                | componentData = createLaser time ( 0.0, 0.0 ) position model.componentData
+                , lastClick = Nothing
+            }
+
+        Nothing ->
+            model
+
+
+updateComponentData : Time -> Model -> Model
+updateComponentData t model =
+    let
+        dt =
+            (t - model.previousTick) / Time.second
+    in
+        { model | componentData = updateComponents t dt model.componentData }
+
+
+runSystems : Time -> Model -> Model
+runSystems t model =
+    let
+        dt =
+            (t - model.previousTick) / Time.second
+
+        ( updatedSystems, updatedComponents ) =
+            Systems.runSystems t dt ( model.systemData, model.componentData )
+    in
+        { model
+            | componentData = updatedComponents
+            , systemData = updatedSystems
+        }
 
 
 handleClick : Float -> Float -> Model -> Model
