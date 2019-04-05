@@ -1,5 +1,11 @@
 module Main exposing (..)
 
+-- This is mostly based on
+-- https://permadi.com/1996/05/ray-casting-tutorial-table-of-contents/
+--
+-- Another resource to try is
+-- http://www.playfuljs.com/a-first-person-engine-in-265-lines/
+
 import Collage exposing (..)
 import Element exposing (Element, flow, right)
 import Color
