@@ -57,9 +57,99 @@ type alias Model =
     , score : Int
     , previousTick : Time
     , lastClick : Maybe Position
+    -- Another shot at more generic components
+    , newComponentData : NewComponentData
     }
 
+{- A different way of representing component data.
 
+Rather than having a lot of specialized components, create more generic
+components that can be more broadly used, and add a dictionary to keep track of
+the type of entity so that rendering functions and systems know what to do with
+the component data that forms a particular type of entity.
+
+-}
+
+type alias NewComponentData =
+    { nextEntityId : EntityId
+    , transformation : Dict.Dict EntityId Transformation -- Translation, scale, rotation
+    , lifeCycle : Dict.Dict EntityId LifeCycle -- When an entity was first created, how long it should live, etc.
+    , entityType : Dict.Dict EntityId EntityType
+    }
+
+type NewComponent
+    = TransformationComponent Transformation
+    | LifeCycleComponent LifeCycle
+
+type alias Transformation =
+    { translation : Vec2
+    , scale : Vec2
+    , rotate : Vec2
+    }
+
+type alias LifeCycle =
+    { birthTime : Time
+    , state : LifeCycleState
+    }
+
+type LifeCycleState =
+    Alive | Dead
+
+type alias Vec2 = {x: Float, y: Float}
+
+type EntityType = PlayerEntity | PingEntity | TargetEntity
+
+setEntityType : EntityId -> EntityType -> NewComponentData -> NewComponentData
+setEntityType id entityType data =
+    { data | entityType = Dict.insert id entityType data.entityType }
+
+getEntitiesOfType : EntityType -> NewComponentData -> List EntityId
+getEntitiesOfType entityType data =
+    Dict.filter (\k v -> v == entityType) data.entityType
+        |> Dict.keys
+
+incrementNextEntityId : NewComponentData -> NewComponentData
+incrementNextEntityId data =
+    { data | nextEntityId = data.nextEntityId + 1 }
+
+addComponent : EntityId -> NewComponent -> NewComponentData -> NewComponentData
+addComponent id comp data =
+    case comp of
+        TransformationComponent componentData ->
+            { data | transformation = Dict.insert id componentData data.transformation }
+
+        LifeCycleComponent componentData ->
+            { data | lifeCycle = Dict.insert id componentData data.lifeCycle }
+
+createPlayerEntity : Time -> NewComponentData -> NewComponentData
+createPlayerEntity t data =
+    let
+        id = data.nextEntityId
+
+        transformation = TransformationComponent (Transformation (Vec2 10 10) (Vec2 1 1) (Vec2 0 0))
+
+        lifeCycle = LifeCycleComponent (LifeCycle t Alive)
+    in
+        data
+        |> addComponent id transformation
+        |> addComponent id lifeCycle
+        |> setEntityType id PlayerEntity
+        |> incrementNextEntityId
+
+createTargetEntity : Time -> NewComponentData -> NewComponentData
+createTargetEntity t data =
+    let
+        id = data.nextEntityId
+
+        transformation = TransformationComponent (Transformation (Vec2 -10 -10) (Vec2 1 1) (Vec2 0 0))
+
+        lifeCycle = LifeCycleComponent (LifeCycle t Alive)
+    in
+        data
+        |> addComponent id transformation
+        |> addComponent id lifeCycle
+        |> setEntityType id TargetEntity
+        |> incrementNextEntityId
 
 {- Initialize the model and send initial commands. -}
 
@@ -68,9 +158,12 @@ init : ( Model, Cmd Msg )
 init =
     let
         empty =
-            Model 0 Components.init Systems.init 0 0 Nothing
+            Model 0 Components.init Systems.init 0 0 Nothing (NewComponentData 0 Dict.empty Dict.empty Dict.empty)
     in
-        ( { empty | componentData = createTarget ( 100, 100 ) blue empty.componentData }
+        ( { empty | componentData = createTarget ( 100, 100 ) blue empty.componentData
+          , newComponentData = createPlayerEntity 0 empty.newComponentData
+                               |> createTargetEntity 0
+          }
         , Cmd.none
         )
 
@@ -106,11 +199,10 @@ view model =
             List.map drawLaser (Dict.toList model.componentData.lasers)
 
         player =
-            Collage.circle 20
-                |> filled green
+            drawPlayers model.newComponentData
 
         gameBoard =
-            collage collageWidth collageHeight (pings ++ targets ++ lasers ++ [ player ])
+            collage collageWidth collageHeight (pings ++ targets ++ lasers ++ player)
                 |> toHtml
     in
         div []
@@ -118,6 +210,27 @@ view model =
             , p [] [ Html.text ("Score: " ++ (toString model.score)) ]
             ]
 
+
+--drawPlayers : NewComponentData -> Element?
+drawPlayers data =
+    let
+        ids =
+            getEntitiesOfType PlayerEntity data
+    in
+        List.map (drawPlayer data) ids
+            |> List.filterMap identity
+
+drawPlayer data id =
+    let
+        t = Dict.get id data.transformation
+        l = Dict.get id data.lifeCycle
+
+        draw t l =
+            Collage.circle 20
+                |> filled green
+                |> move (t.translation.x, t.translation.y)
+    in
+        Maybe.map2 draw t l
 
 drawPing fades ( id, ping ) =
     let
