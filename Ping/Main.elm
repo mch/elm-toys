@@ -73,10 +73,14 @@ the component data that forms a particular type of entity.
 type alias NewComponentData =
     { nextEntityId : EntityId
     , entityType : Dict.Dict EntityId EntityType
-    , transformation : Dict.Dict EntityId Transformation -- Translation, scale, rotation
-    , lifeCycle : Dict.Dict EntityId LifeCycle -- When an entity was first created, how long it should live, etc.
+    , transformation : Dict.Dict EntityId Transformation
+    , lifeCycle : Dict.Dict EntityId LifeCycle
     , pingable : Dict.Dict EntityId Pingable
     , boundingCircle : Dict.Dict EntityId Float
+
+    -- The following fields are for keeping track of how entities interact with each other.
+    , newBoundingCircleOverlaps : List (EntityId, EntityId)
+    , existingBoundingCircleOverlaps : List (EntityId, EntityId)
     }
 
 initNewComponentData =
@@ -86,6 +90,8 @@ initNewComponentData =
     , lifeCycle = Dict.empty
     , pingable = Dict.empty
     , boundingCircle = Dict.empty
+    , newBoundingCircleOverlaps = []
+    , existingBoundingCircleOverlaps = []
     }
 
 type NewComponent
@@ -107,7 +113,7 @@ type alias LifeCycle =
     }
 
 type alias Pingable =
-    { pingTime : Maybe Time
+    { pingTime : Time
     }
 
 type LifeCycleState =
@@ -158,19 +164,19 @@ createTargetEntity t id data =
     let
         transformation = TransformationComponent (Transformation (Vec2 -50 -50) (Vec2 1 1) (Vec2 0 0))
 
-        pingable = PingableComponent (Pingable Nothing)
+        pingable = PingableComponent (Pingable 0)
     in
         data
         |> addComponent id transformation
         |> addComponent id pingable
         |> addComponent id (BoundingCircleComponent 20)
 
-createPingEntity : Vec2 -> Time -> EntityId -> NewComponentData -> NewComponentData
-createPingEntity position t id data =
+createPingEntity : Vec2 -> Time -> Time -> EntityId -> NewComponentData -> NewComponentData
+createPingEntity position ttl t id data =
     data
         |> addComponent id (BoundingCircleComponent 10)
         |> addComponent id (TransformationComponent (Transformation position (Vec2 1 1) (Vec2 0 0)))
-        |> addComponent id (LifeCycleComponent (LifeCycle t (Just (10 * second)) Alive))
+        |> addComponent id (LifeCycleComponent (LifeCycle t (Just (ttl * second)) Alive))
 
 
 updatePingEntity : Time -> EntityId -> NewComponentData -> NewComponentData
@@ -216,9 +222,106 @@ updateNewComponentData t model =
 
         updatedData = List.foldl (updatePingEntity dt) data pingEntities
                      |> filterOldPings t
+                     |> detectOverlaps
+                     |> processTargets t
     in
         { model | newComponentData = updatedData }
 
+
+-- Finds overlapping entities by checking their bounding circles, and stores the results.
+detectOverlaps : NewComponentData -> NewComponentData
+detectOverlaps data =
+    let
+        entities = Dict.keys data.boundingCircle
+
+        lookupComponents id =
+            Maybe.map2 (\t radius -> (id, t.translation, radius))
+                (Dict.get id data.transformation)
+                (Dict.get id data.boundingCircle)
+
+        -- Sort the list of bounding circles by id so that we can skip comparing
+        -- the same items twice
+        circleComparitor (id1, _, _) (id2, _, _) =
+            if id1 == id2 then
+                EQ
+            else
+                if id1 > id2 then
+                     GT
+                 else
+                     LT
+
+        circles =
+            List.filterMap lookupComponents entities
+                |> List.sortWith circleComparitor
+
+        -- This solution is a bit sub-optimal because it traverses the list
+        -- twice, but the number of items is small for now, so let's roll with
+        -- it.
+        overlaps = List.concatMap (\c1 -> List.map (\c2 -> compareCircles c1 c2) circles) circles
+                   |> List.filterMap identity
+
+        newOverlaps = List.filter (\x -> not (List.member x data.existingBoundingCircleOverlaps)) overlaps
+    in
+        { data | newBoundingCircleOverlaps = newOverlaps
+        , existingBoundingCircleOverlaps = overlaps
+        }
+
+compareCircles (id1, t1, r1) (id2, t2, r2) =
+    if id1 == id2 || id1 > id2 then
+        Nothing
+    else
+        let
+            (dx, dy) =
+                (abs (t2.x - t1.x), abs (t2.y - t1.y))
+
+            d =
+                sqrt (dx ^ 2 + dy ^ 2)
+        in
+            -- Currently this is only when the outer edges intersect. If one
+            -- circle is fully within another, that is not considered an
+            -- intersection, because that is not what we want for pings.
+            if r1 + r2 > d && r2 < d + r1 && r1 < d + r2 then
+                Just (id1, id2)
+            else
+                Nothing
+
+
+-- Processes targets, creating new reflected pings if they were just pinged,
+-- moving them, handling damage from weapons, etc.
+processTargets : Time -> NewComponentData -> NewComponentData
+processTargets t data =
+    let
+        entities = getEntitiesOfType TargetEntity data
+    in
+        List.foldl (processTarget t) data entities
+
+processTarget t id data =
+    let
+        transform = Dict.get id data.transformation
+
+        createPingReflection translation (id1, id2) data =
+            if id1 == id || id2 == id then
+                -- It would be cool if the initial opacity of the ping related
+                -- to the current opacity of the ping that caused this
+                -- reflection... But the original pings don't fade very fast
+                -- right now.
+                createEntity t PingEntity (createPingEntity translation 1) data
+                    |> updatePingTime id t
+            else
+                data
+
+    in
+        case transform of
+            Just transform ->
+                List.foldl (createPingReflection transform.translation) data data.newBoundingCircleOverlaps
+            Nothing ->
+                data
+
+updatePingTime id t data =
+    { data | pingable = Dict.update id (\p -> Maybe.map (\p -> { p | pingTime = t }) p) data.pingable }
+
+
+-- Removes all components for each entity in the list.
 deleteEntities : List EntityId -> NewComponentData -> NewComponentData
 deleteEntities entities data =
     let
@@ -255,7 +358,7 @@ createInitialEntities t model =
         {model | newComponentData = model.newComponentData
              |> createEntity t PlayerEntity createPlayerEntity
              |> createEntity t TargetEntity createTargetEntity
-             |> createEntity t PingEntity (createPingEntity (Vec2 0 0))
+             |> createEntity t PingEntity (createPingEntity (Vec2 0 0) 10)
         }
     else
         model
@@ -293,7 +396,7 @@ view model =
 
         targets2 =
             getEntitiesOfType TargetEntity model.newComponentData
-                |> List.map (drawTarget2 model.newComponentData)
+                |> List.map (drawTarget2 model.previousTick model.newComponentData)
                 |> List.filterMap identity
 
         lasers =
@@ -326,17 +429,18 @@ drawPlayer data id =
     in
         Maybe.map2 draw t l
 
-drawTarget2 data id =
+drawTarget2 time data id =
     let
         t = Dict.get id data.transformation
         l = Dict.get id data.lifeCycle
+        p = Dict.get id data.pingable
 
-        draw t l =
-            rect 50 50
-                |> filled blue
+        draw t l p =
+            rect 20 20
+                |> filled (adjustAlpha blue (Ease.linear (1 - (time - p.pingTime) / 1000)))
                 |> move (t.translation.x, t.translation.y)
     in
-        Maybe.map2 draw t l
+        Maybe.map3 draw t l p
 
 drawPing fades ( id, ping ) =
     let
@@ -478,7 +582,7 @@ handleKey code model =
     if (Debug.log "keycode:" code) == 69 then
         { model
             | componentData = createFadingPing model.componentData model.previousTick ( 0, 0 ) red 30000
-            , newComponentData = createEntity model.previousTick PingEntity (createPingEntity (Vec2 0 0)) model.newComponentData
+            , newComponentData = createEntity model.previousTick PingEntity (createPingEntity (Vec2 0 0) 10) model.newComponentData
         }
     else
         model
