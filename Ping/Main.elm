@@ -77,6 +77,8 @@ type alias NewComponentData =
     , lifeCycle : Dict.Dict EntityId LifeCycle
     , pingable : Dict.Dict EntityId Pingable
     , boundingCircle : Dict.Dict EntityId Float
+    , path : Dict.Dict EntityId Path
+    , ping : Dict.Dict EntityId Ping
 
     -- The following fields are for keeping track of how entities interact with each other.
     , newBoundingCircleOverlaps : List (EntityId, EntityId)
@@ -90,6 +92,10 @@ initNewComponentData =
     , lifeCycle = Dict.empty
     , pingable = Dict.empty
     , boundingCircle = Dict.empty
+    , path = Dict.empty
+    , ping = Dict.empty
+
+    -- System data
     , newBoundingCircleOverlaps = []
     , existingBoundingCircleOverlaps = []
     }
@@ -99,6 +105,8 @@ type NewComponent
     | LifeCycleComponent LifeCycle
     | PingableComponent Pingable
     | BoundingCircleComponent Float
+    | PathComponent Path
+    | PingComponent Ping
 
 type alias Transformation =
     { translation : Vec2
@@ -115,6 +123,24 @@ type alias LifeCycle =
 type alias Pingable =
     { pingTime : Time
     }
+
+type alias Path =
+    { lapTime : Time -- The time taken to make one lap around the path
+    , pathType : PathType
+    , offset : Vec2
+    , scale : Vec2
+    }
+
+type alias Ping =
+    { radius : Float
+    , color : Color
+    }
+
+type PathType = None
+              | Circle
+              | Ellipse
+              | Lissajous
+              | Hypotrochoid
 
 type LifeCycleState =
     Alive | Dead
@@ -151,6 +177,36 @@ addComponent id comp data =
         BoundingCircleComponent radius ->
             { data | boundingCircle = Dict.insert id radius data.boundingCircle }
 
+        PathComponent path ->
+            { data | path = Dict.insert id path data.path }
+
+        PingComponent ping ->
+            { data | ping = Dict.insert id ping data.ping }
+
+-- Hmm, don't like that I have to provide the data for NewComponent when all I
+-- want to do is just remove it, but that is the way things are defined right
+-- now...
+removeComponent : EntityId -> NewComponent -> NewComponentData -> NewComponentData
+removeComponent id comp data =
+    case comp of
+        TransformationComponent componentData ->
+            { data | transformation = Dict.remove id data.transformation }
+
+        LifeCycleComponent componentData ->
+            { data | lifeCycle = Dict.remove id data.lifeCycle }
+
+        PingableComponent componentData ->
+            { data | pingable = Dict.remove id data.pingable }
+
+        BoundingCircleComponent radius ->
+            { data | boundingCircle = Dict.remove id data.boundingCircle }
+
+        PathComponent path ->
+            { data | path = Dict.remove id data.path }
+
+        PingComponent ping ->
+            { data | ping = Dict.remove id data.ping }
+
 createPlayerEntity : Time -> EntityId -> NewComponentData -> NewComponentData
 createPlayerEntity t id data =
     let
@@ -168,6 +224,7 @@ createTargetEntity t id data =
     in
         data
         |> addComponent id transformation
+        |> addComponent id (PathComponent (Path 10 Circle (Vec2 0 0) (Vec2 100 100)))
         |> addComponent id pingable
         |> addComponent id (BoundingCircleComponent 20)
 
@@ -175,6 +232,7 @@ createPingEntity : Vec2 -> Time -> Time -> EntityId -> NewComponentData -> NewCo
 createPingEntity position ttl t id data =
     data
         |> addComponent id (BoundingCircleComponent 10)
+        |> addComponent id (PingComponent (Ping 10 red))
         |> addComponent id (TransformationComponent (Transformation position (Vec2 1 1) (Vec2 0 0)))
         |> addComponent id (LifeCycleComponent (LifeCycle t (Just (ttl * second)) Alive))
 
@@ -184,8 +242,12 @@ updatePingEntity dt id data =
     let
         update radius =
             Maybe.map (\r -> r + dt / 10) radius
+
+        updatePing ping =
+            Maybe.map (\p -> { p | radius = p.radius + dt / 10 }) ping
     in
-        { data | boundingCircle = Dict.update id update data.boundingCircle }
+        { data | boundingCircle = Dict.update id update data.boundingCircle
+        , ping = Dict.update id updatePing data.ping }
 
 type alias EntityCreator = (Time -> EntityId -> NewComponentData -> NewComponentData)
 
@@ -232,7 +294,8 @@ updateNewComponentData t model =
 detectOverlaps : NewComponentData -> NewComponentData
 detectOverlaps data =
     let
-        entities = Dict.keys data.boundingCircle
+        entities =
+            Dict.keys data.boundingCircle
 
         lookupComponents id =
             Maybe.map2 (\t radius -> (id, t.translation, radius))
@@ -257,10 +320,13 @@ detectOverlaps data =
         -- This solution is a bit sub-optimal because it traverses the list
         -- twice, but the number of items is small for now, so let's roll with
         -- it.
-        overlaps = List.concatMap (\c1 -> List.map (\c2 -> compareCircles c1 c2) circles) circles
-                   |> List.filterMap identity
+        overlaps =
+            List.concatMap (\c1 -> List.map (\c2 -> compareCircles c1 c2) circles) circles
+                |> List.filterMap identity
 
-        newOverlaps = List.filter (\x -> not (List.member x data.existingBoundingCircleOverlaps)) overlaps
+        newOverlaps =
+            List.filter (\x -> not (List.member x data.existingBoundingCircleOverlaps)) overlaps
+
     in
         { data | newBoundingCircleOverlaps = newOverlaps
         , existingBoundingCircleOverlaps = overlaps
@@ -295,27 +361,57 @@ processTargets t data =
     in
         List.foldl (processTarget t) data entities
 
-processTarget t id data =
+processTarget time id data =
     let
         transform = Dict.get id data.transformation
+        path = Dict.get id data.path
+        lifeCycle = Dict.get id data.lifeCycle
+    in
+        Maybe.withDefault data (Maybe.map3 (processTarget2 id time data) transform path lifeCycle)
 
+processTarget2 id time data transform path lifeCycle =
+    let
         createPingReflection translation (id1, id2) data =
             if id1 == id || id2 == id then
                 -- It would be cool if the initial opacity of the ping related
                 -- to the current opacity of the ping that caused this
                 -- reflection... But the original pings don't fade very fast
                 -- right now.
-                createEntity t PingEntity (createPingEntity translation 1) data
-                    |> updatePingTime id t
+                let
+                    newPingId = data.nextEntityId
+                in
+                    createEntity time PingEntity (createPingEntity translation 1) data
+                        |> removeComponent newPingId (BoundingCircleComponent 0) -- so that it can't create other pings
+                        |> updatePingTime id time
             else
                 data
-
     in
-        case transform of
-            Just transform ->
-                List.foldl (createPingReflection transform.translation) data data.newBoundingCircleOverlaps
-            Nothing ->
-                data
+        List.foldl (createPingReflection transform.translation) data data.newBoundingCircleOverlaps
+            |> moveTargetAlongPath id time transform path lifeCycle
+
+
+moveTargetAlongPath id time transform path lifeCycle data =
+    case path.pathType of
+        None ->
+            data
+        Circle ->
+            let
+                angle =
+                    (time - lifeCycle.birthTime) / 1000
+
+                translation =
+                    Vec2 (path.offset.x + path.scale.x * (cos angle))
+                        (path.offset.y + path.scale.y * (sin angle))
+
+                updatedTransform = { transform | translation = translation }
+            in
+                { data | transformation = Dict.update id (\t -> Maybe.map (\t -> { t | translation = translation }) t) data.transformation }
+        Ellipse ->
+            data
+        Lissajous ->
+            data
+        Hypotrochoid ->
+            data
 
 updatePingTime id t data =
     { data | pingable = Dict.update id (\p -> Maybe.map (\p -> { p | pingTime = t }) p) data.pingable }
@@ -458,21 +554,21 @@ drawPing fades ( id, ping ) =
 drawPing2 time data id =
     let
         transform = Dict.get id data.transformation
-        boundingCircle = Dict.get id data.boundingCircle
+        ping = Dict.get id data.ping
         lifeCycle = Dict.get id data.lifeCycle
     in
-        Maybe.map3 (drawPing3 time) transform boundingCircle lifeCycle
+        Maybe.map3 (drawPing3 time) transform ping lifeCycle
 
 -- This one does the actual drawing...
-drawPing3 time transform boundingCircle lifeCycle =
+drawPing3 time transform ping lifeCycle =
     let
         ttl = Maybe.withDefault (100000 * millisecond) lifeCycle.ttl
         easing = 1 - (time - lifeCycle.birthTime) / ttl
         fade = Ease.linear easing
         translation = transform.translation
     in
-            Collage.circle boundingCircle
-                |> outlined { defaultLine | color = (adjustAlpha red fade) }
+            Collage.circle ping.radius
+                |> outlined { defaultLine | color = (adjustAlpha ping.color fade) }
                 |> move (translation.x, translation.y)
 
 drawTarget fades ( id, target ) =
