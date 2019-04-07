@@ -102,6 +102,7 @@ type alias Transformation =
 
 type alias LifeCycle =
     { birthTime : Time
+    , ttl : Maybe Time -- Number of ms to live, or Nothing to live forever.
     , state : LifeCycleState
     }
 
@@ -144,45 +145,32 @@ addComponent id comp data =
         BoundingCircleComponent radius ->
             { data | boundingCircle = Dict.insert id radius data.boundingCircle }
 
-createPlayerEntity : Time -> NewComponentData -> NewComponentData
-createPlayerEntity t data =
+createPlayerEntity : Time -> EntityId -> NewComponentData -> NewComponentData
+createPlayerEntity t id data =
     let
-        id = data.nextEntityId
-
         transformation = TransformationComponent (Transformation (Vec2 0 0) (Vec2 1 1) (Vec2 0 0))
-
-        lifeCycle = LifeCycleComponent (LifeCycle t Alive)
     in
         data
         |> addComponent id transformation
-        |> addComponent id lifeCycle
-        |> setEntityType id PlayerEntity
-        |> incrementNextEntityId
 
-createTargetEntity : Time -> NewComponentData -> NewComponentData
-createTargetEntity t data =
+createTargetEntity : Time -> EntityId -> NewComponentData -> NewComponentData
+createTargetEntity t id data =
     let
-        id = data.nextEntityId
-
         transformation = TransformationComponent (Transformation (Vec2 -50 -50) (Vec2 1 1) (Vec2 0 0))
-
-        lifeCycle = LifeCycleComponent (LifeCycle t Alive)
 
         pingable = PingableComponent (Pingable Nothing)
     in
         data
         |> addComponent id transformation
-        |> addComponent id lifeCycle
         |> addComponent id pingable
         |> addComponent id (BoundingCircleComponent 20)
-        |> setEntityType id TargetEntity
-        |> incrementNextEntityId
 
 createPingEntity : Vec2 -> Time -> EntityId -> NewComponentData -> NewComponentData
 createPingEntity position t id data =
     data
         |> addComponent id (BoundingCircleComponent 20)
         |> addComponent id (TransformationComponent (Transformation position (Vec2 1 1) (Vec2 0 0)))
+        |> addComponent id (LifeCycleComponent (LifeCycle t (Just (10 * second)) Alive))
 
 
 updatePingEntity : Time -> EntityId -> NewComponentData -> NewComponentData
@@ -200,9 +188,12 @@ createEntity t et f data =
     let
         id = data.nextEntityId
     in
-        f t id data
-            |> addComponent id (LifeCycleComponent (LifeCycle t Alive))
+        -- Set up the defaults before calling the entity creator, then it can
+        -- modify them if it needs to.
+        data
+            |> addComponent id (LifeCycleComponent (LifeCycle t Nothing Alive))
             |> setEntityType id et
+            |> f t id
             |> incrementNextEntityId
 
 
@@ -259,8 +250,8 @@ createInitialEntities : Time -> Model -> Model
 createInitialEntities t model =
     if model.previousTick == 0 then
         {model | newComponentData = model.newComponentData
-             |> createPlayerEntity t
-             |> createTargetEntity t
+             |> createEntity t PlayerEntity createPlayerEntity
+             |> createEntity t TargetEntity createTargetEntity
              |> createEntity t PingEntity (createPingEntity (Vec2 0 0))
         }
     else
@@ -368,7 +359,8 @@ drawPing2 time data id =
 -- This one does the actual drawing...
 drawPing3 time transform boundingCircle lifeCycle =
     let
-        easing = 1 - (time - lifeCycle.birthTime) / 1000
+        ttl = Maybe.withDefault (100000 * millisecond) lifeCycle.ttl
+        easing = 1 - (time - lifeCycle.birthTime) / ttl
         fade = Ease.linear easing
         translation = transform.translation
     in
