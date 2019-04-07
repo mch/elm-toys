@@ -174,10 +174,10 @@ createPingEntity position t id data =
 
 
 updatePingEntity : Time -> EntityId -> NewComponentData -> NewComponentData
-updatePingEntity t id data =
+updatePingEntity dt id data =
     let
         update radius =
-            Maybe.map (\r -> r + 1) radius
+            Maybe.map (\r -> r + 100 * dt) radius
     in
         { data | boundingCircle = Dict.update id update data.boundingCircle }
 
@@ -211,7 +211,9 @@ updateNewComponentData t model =
             in
                 deleteEntities oldPings data
 
-        updatedData = List.foldl (updatePingEntity t) data pingEntities
+        dt = t - model.previousTick
+
+        updatedData = List.foldl (updatePingEntity dt) data pingEntities
                      |> filterOldPings t
     in
         { model | newComponentData = updatedData }
@@ -475,6 +477,7 @@ handleKey code model =
     if (Debug.log "keycode:" code) == 69 then
         { model
             | componentData = createFadingPing model.componentData model.previousTick ( 0, 0 ) red 30000
+            , newComponentData = createEntity model.previousTick PingEntity (createPingEntity (Vec2 0 0)) model.newComponentData
         }
     else
         model
