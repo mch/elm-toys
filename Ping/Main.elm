@@ -72,14 +72,27 @@ the component data that forms a particular type of entity.
 
 type alias NewComponentData =
     { nextEntityId : EntityId
+    , entityType : Dict.Dict EntityId EntityType
     , transformation : Dict.Dict EntityId Transformation -- Translation, scale, rotation
     , lifeCycle : Dict.Dict EntityId LifeCycle -- When an entity was first created, how long it should live, etc.
-    , entityType : Dict.Dict EntityId EntityType
+    , pingable : Dict.Dict EntityId Pingable
+    , boundingCircle : Dict.Dict EntityId Float
+    }
+
+initNewComponentData =
+    { nextEntityId = 0
+    , entityType = Dict.empty
+    , transformation = Dict.empty
+    , lifeCycle = Dict.empty
+    , pingable = Dict.empty
+    , boundingCircle = Dict.empty
     }
 
 type NewComponent
     = TransformationComponent Transformation
     | LifeCycleComponent LifeCycle
+    | PingableComponent Pingable
+    | BoundingCircleComponent Float
 
 type alias Transformation =
     { translation : Vec2
@@ -92,12 +105,16 @@ type alias LifeCycle =
     , state : LifeCycleState
     }
 
+type alias Pingable =
+    { pingTime : Maybe Time
+    }
+
 type LifeCycleState =
     Alive | Dead
 
 type alias Vec2 = {x: Float, y: Float}
 
-type EntityType = PlayerEntity | PingEntity | TargetEntity
+type EntityType = PlayerEntity | TargetEntity | PingEntity
 
 setEntityType : EntityId -> EntityType -> NewComponentData -> NewComponentData
 setEntityType id entityType data =
@@ -121,12 +138,18 @@ addComponent id comp data =
         LifeCycleComponent componentData ->
             { data | lifeCycle = Dict.insert id componentData data.lifeCycle }
 
+        PingableComponent componentData ->
+            { data | pingable = Dict.insert id componentData data.pingable }
+
+        BoundingCircleComponent radius ->
+            { data | boundingCircle = Dict.insert id radius data.boundingCircle }
+
 createPlayerEntity : Time -> NewComponentData -> NewComponentData
 createPlayerEntity t data =
     let
         id = data.nextEntityId
 
-        transformation = TransformationComponent (Transformation (Vec2 10 10) (Vec2 1 1) (Vec2 0 0))
+        transformation = TransformationComponent (Transformation (Vec2 0 0) (Vec2 1 1) (Vec2 0 0))
 
         lifeCycle = LifeCycleComponent (LifeCycle t Alive)
     in
@@ -141,15 +164,81 @@ createTargetEntity t data =
     let
         id = data.nextEntityId
 
-        transformation = TransformationComponent (Transformation (Vec2 -10 -10) (Vec2 1 1) (Vec2 0 0))
+        transformation = TransformationComponent (Transformation (Vec2 -50 -50) (Vec2 1 1) (Vec2 0 0))
 
         lifeCycle = LifeCycleComponent (LifeCycle t Alive)
+
+        pingable = PingableComponent (Pingable Nothing)
     in
         data
         |> addComponent id transformation
         |> addComponent id lifeCycle
+        |> addComponent id pingable
+        |> addComponent id (BoundingCircleComponent 20)
         |> setEntityType id TargetEntity
         |> incrementNextEntityId
+
+createPingEntity : Vec2 -> Time -> EntityId -> NewComponentData -> NewComponentData
+createPingEntity position t id data =
+    data
+        |> addComponent id (BoundingCircleComponent 20)
+        |> addComponent id (TransformationComponent (Transformation position (Vec2 1 1) (Vec2 0 0)))
+
+
+updatePingEntity : Time -> EntityId -> NewComponentData -> NewComponentData
+updatePingEntity t id data =
+    let
+        update radius =
+            Maybe.map (\r -> r + 1) radius
+    in
+        { data | boundingCircle = Dict.update id update data.boundingCircle }
+
+type alias EntityCreator = (Time -> EntityId -> NewComponentData -> NewComponentData)
+
+createEntity : Time -> EntityType -> EntityCreator -> NewComponentData -> NewComponentData
+createEntity t et f data =
+    let
+        id = data.nextEntityId
+    in
+        f t id data
+            |> addComponent id (LifeCycleComponent (LifeCycle t Alive))
+            |> setEntityType id et
+            |> incrementNextEntityId
+
+
+updateNewComponentData : Time -> Model -> Model
+updateNewComponentData t model =
+    let
+        data = model.newComponentData
+
+        pingEntities = getEntitiesOfType PingEntity data
+
+        filterOldPings t data =
+            let
+                oldPings = Dict.filter (\id radius -> radius > 150) data.boundingCircle
+                         |> Dict.keys
+            in
+                deleteEntities oldPings data
+
+        updatedData = List.foldl (updatePingEntity t) data pingEntities
+                     |> filterOldPings t
+    in
+        { model | newComponentData = updatedData }
+
+deleteEntities : List EntityId -> NewComponentData -> NewComponentData
+deleteEntities entities data =
+    let
+        -- How do we ensure this gets updated if a new component is added?
+        deleteEntity id data =
+            { data | entityType = Dict.remove id data.entityType
+            , transformation = Dict.remove id data.transformation
+            , lifeCycle = Dict.remove id data.lifeCycle
+            , pingable = Dict.remove id data.pingable
+            , boundingCircle = Dict.remove id data.boundingCircle
+            }
+    in
+        List.foldl deleteEntity data entities
+
 
 {- Initialize the model and send initial commands. -}
 
@@ -158,16 +247,24 @@ init : ( Model, Cmd Msg )
 init =
     let
         empty =
-            Model 0 Components.init Systems.init 0 0 Nothing (NewComponentData 0 Dict.empty Dict.empty Dict.empty)
+            Model 0 Components.init Systems.init 0 0 Nothing initNewComponentData
     in
-        ( { empty | componentData = createTarget ( 100, 100 ) blue empty.componentData
-          , newComponentData = createPlayerEntity 0 empty.newComponentData
-                               |> createTargetEntity 0
-          }
+        ( { empty | componentData = createTarget ( 100, 100 ) blue empty.componentData }
         , Cmd.none
         )
 
 
+{- Creates entities the first time the time is updated so that they have proper birth times. -}
+createInitialEntities : Time -> Model -> Model
+createInitialEntities t model =
+    if model.previousTick == 0 then
+        {model | newComponentData = model.newComponentData
+             |> createPlayerEntity t
+             |> createTargetEntity t
+             |> createEntity t PingEntity (createPingEntity (Vec2 0 0))
+        }
+    else
+        model
 
 {- Messages that can come into the update function. -}
 
@@ -190,19 +287,31 @@ view model =
                 (drawPing model.componentData.fades)
                 (Dict.toList model.componentData.pings)
 
+        pings2 =
+            getEntitiesOfType PingEntity model.newComponentData
+                |> List.map (drawPing2 model.previousTick model.newComponentData)
+                |> List.filterMap identity
+
         targets =
             List.map
                 (drawTarget model.componentData.fades)
                 (Dict.toList model.componentData.targets)
 
+        targets2 =
+            getEntitiesOfType TargetEntity model.newComponentData
+                |> List.map (drawTarget2 model.newComponentData)
+                |> List.filterMap identity
+
         lasers =
             List.map drawLaser (Dict.toList model.componentData.lasers)
 
         player =
-            drawPlayers model.newComponentData
+            getEntitiesOfType PlayerEntity model.newComponentData
+                |> List.map (drawPlayer model.newComponentData)
+                |> List.filterMap identity
 
         gameBoard =
-            collage collageWidth collageHeight (pings ++ targets ++ lasers ++ player)
+            collage collageWidth collageHeight (pings ++ targets ++ targets2 ++ lasers ++ player ++ pings2)
                 |> toHtml
     in
         div []
@@ -210,15 +319,6 @@ view model =
             , p [] [ Html.text ("Score: " ++ (toString model.score)) ]
             ]
 
-
---drawPlayers : NewComponentData -> Element?
-drawPlayers data =
-    let
-        ids =
-            getEntitiesOfType PlayerEntity data
-    in
-        List.map (drawPlayer data) ids
-            |> List.filterMap identity
 
 drawPlayer data id =
     let
@@ -228,6 +328,18 @@ drawPlayer data id =
         draw t l =
             Collage.circle 20
                 |> filled green
+                |> move (t.translation.x, t.translation.y)
+    in
+        Maybe.map2 draw t l
+
+drawTarget2 data id =
+    let
+        t = Dict.get id data.transformation
+        l = Dict.get id data.lifeCycle
+
+        draw t l =
+            rect 50 50
+                |> filled blue
                 |> move (t.translation.x, t.translation.y)
     in
         Maybe.map2 draw t l
@@ -243,6 +355,26 @@ drawPing fades ( id, ping ) =
             |> outlined { defaultLine | color = (adjustAlpha ping.color fade) }
             |> move ping.position
 
+
+-- This one just extracts component data... can this be generalized?
+drawPing2 time data id =
+    let
+        transform = Dict.get id data.transformation
+        boundingCircle = Dict.get id data.boundingCircle
+        lifeCycle = Dict.get id data.lifeCycle
+    in
+        Maybe.map3 (drawPing3 time) transform boundingCircle lifeCycle
+
+-- This one does the actual drawing...
+drawPing3 time transform boundingCircle lifeCycle =
+    let
+        easing = 1 - (time - lifeCycle.birthTime) / 1000
+        fade = Ease.linear easing
+        translation = transform.translation
+    in
+            Collage.circle boundingCircle
+                |> outlined { defaultLine | color = (adjustAlpha red fade) }
+                |> move (translation.x, translation.y)
 
 drawTarget fades ( id, target ) =
     let
@@ -284,7 +416,9 @@ update action model =
             case action of
                 Tick t ->
                     model
+                        |> createInitialEntities t
                         |> updateComponentData t
+                        |> updateNewComponentData t
                         |> runSystems t
                         |> updateFromInput t
                         |> updatePreviousTime t
