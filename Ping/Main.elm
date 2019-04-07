@@ -168,7 +168,7 @@ createTargetEntity t id data =
 createPingEntity : Vec2 -> Time -> EntityId -> NewComponentData -> NewComponentData
 createPingEntity position t id data =
     data
-        |> addComponent id (BoundingCircleComponent 20)
+        |> addComponent id (BoundingCircleComponent 10)
         |> addComponent id (TransformationComponent (Transformation position (Vec2 1 1) (Vec2 0 0)))
         |> addComponent id (LifeCycleComponent (LifeCycle t (Just (10 * second)) Alive))
 
@@ -177,7 +177,7 @@ updatePingEntity : Time -> EntityId -> NewComponentData -> NewComponentData
 updatePingEntity dt id data =
     let
         update radius =
-            Maybe.map (\r -> r + 100 * dt) radius
+            Maybe.map (\r -> r + dt / 10) radius
     in
         { data | boundingCircle = Dict.update id update data.boundingCircle }
 
@@ -206,7 +206,8 @@ updateNewComponentData t model =
 
         filterOldPings t data =
             let
-                oldPings = Dict.filter (\id radius -> radius > 150) data.boundingCircle
+                playAreaRadius = 400
+                oldPings = Dict.filter (\id radius -> radius > playAreaRadius) data.boundingCircle
                          |> Dict.keys
             in
                 deleteEntities oldPings data
