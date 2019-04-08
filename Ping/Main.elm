@@ -17,22 +17,15 @@ import Time exposing (..)
 import Window
 
 
--- Internal Modules
-
-import Common exposing (..)
-import Components exposing (..)
-import Constants exposing (..)
-import Entities exposing (..)
-import EntityId exposing (..)
-import FadeableIntensity exposing (..)
-import Tween exposing (..)
-import Systems exposing (..)
+collageWidth =
+    800
 
 
-{- Components -}
+collageHeight =
+    600
 
-import Ping exposing (..)
-import Target exposing (..)
+type alias EntityId =
+    Int
 
 
 {- If this was more of a component-entity-system (CES), a Ping or Target would
@@ -52,11 +45,9 @@ import Target exposing (..)
 
 type alias Model =
     { nextEntityId : EntityId
-    , componentData : ComponentData
-    , systemData : SystemData
     , score : Int
     , previousTick : Time
-    , lastClick : Maybe Position
+    , lastClick : Maybe Vec2
     -- Another shot at more generic components
     , newComponentData : NewComponentData
     }
@@ -462,11 +453,9 @@ init : ( Model, Cmd Msg )
 init =
     let
         empty =
-            Model 0 Components.init Systems.init 0 0 Nothing initNewComponentData
+            Model 0 0 0 Nothing initNewComponentData
     in
-        ( { empty | componentData = createTarget ( 100, 100 ) blue empty.componentData }
-        , Cmd.none
-        )
+        ( empty, Cmd.none )
 
 
 {- Creates entities the first time the time is updated so that they have proper birth times. -}
@@ -498,27 +487,14 @@ view : Model -> Html Msg
 view model =
     let
         pings =
-            List.map
-                (drawPing model.componentData.fades)
-                (Dict.toList model.componentData.pings)
-
-        pings2 =
             getEntitiesOfType PingEntity model.newComponentData
                 |> List.map (drawPing2 model.previousTick model.newComponentData)
                 |> List.filterMap identity
 
         targets =
-            List.map
-                (drawTarget model.componentData.fades)
-                (Dict.toList model.componentData.targets)
-
-        targets2 =
             getEntitiesOfType TargetEntity model.newComponentData
                 |> List.map (drawTarget2 model.previousTick model.newComponentData)
                 |> List.filterMap identity
-
-        lasers =
-            List.map drawLaser (Dict.toList model.componentData.lasers)
 
         player =
             getEntitiesOfType PlayerEntity model.newComponentData
@@ -526,7 +502,7 @@ view model =
                 |> List.filterMap identity
 
         gameBoard =
-            collage collageWidth collageHeight (pings ++ targets ++ targets2 ++ lasers ++ player ++ pings2)
+            collage collageWidth collageHeight (targets ++ player ++ pings)
                 |> toHtml
     in
         div []
@@ -560,18 +536,6 @@ drawTarget2 time data id =
     in
         Maybe.map3 draw t l p
 
-drawPing fades ( id, ping ) =
-    let
-        fade =
-            Dict.get id fades
-                |> Maybe.map .intensity
-                |> Maybe.withDefault 1
-    in
-        Collage.circle ping.radius
-            |> outlined { defaultLine | color = (adjustAlpha ping.color fade) }
-            |> move ping.position
-
-
 -- This one just extracts component data... can this be generalized?
 drawPing2 time data id =
     let
@@ -592,22 +556,6 @@ drawPing3 time transform ping lifeCycle =
             Collage.circle ping.radius
                 |> outlined { defaultLine | color = (adjustAlpha ping.color fade) }
                 |> move (translation.x, translation.y)
-
-drawTarget fades ( id, target ) =
-    let
-        fade =
-            Dict.get id fades
-                |> Maybe.map .intensity
-                |> Maybe.withDefault 1
-    in
-        rect target.size target.size
-            |> filled (adjustAlpha target.color fade)
-            |> move target.position
-
-
-drawLaser ( id, laser ) =
-    segment laser.start laser.end
-        |> traced defaultLine
 
 
 adjustAlpha : Color -> Float -> Color
@@ -634,9 +582,7 @@ update action model =
                 Tick t ->
                     model
                         |> createInitialEntities t
-                        |> updateComponentData t
                         |> updateNewComponentData t
-                        |> runSystems t
                         |> updateFromInput t
                         |> updatePreviousTime t
 
@@ -654,41 +600,16 @@ updateFromInput time model =
     case model.lastClick of
         Just position ->
             { model
-                | componentData = createLaser time ( 0.0, 0.0 ) position model.componentData
-                , lastClick = Nothing
+                | lastClick = Nothing
             }
 
         Nothing ->
             model
 
 
-updateComponentData : Time -> Model -> Model
-updateComponentData t model =
-    let
-        dt =
-            (t - model.previousTick) / Time.second
-    in
-        { model | componentData = updateComponents t dt model.componentData }
-
-
-runSystems : Time -> Model -> Model
-runSystems t model =
-    let
-        dt =
-            (t - model.previousTick) / Time.second
-
-        ( updatedSystems, updatedComponents ) =
-            Systems.runSystems t dt ( model.systemData, model.componentData )
-    in
-        { model
-            | componentData = updatedComponents
-            , systemData = updatedSystems
-        }
-
-
 handleClick : Float -> Float -> Model -> Model
 handleClick px py model =
-    { model | lastClick = Just ( px, py ) }
+    { model | lastClick = Just ( Vec2 px py ) }
 
 
 handleKey code model =
@@ -699,8 +620,7 @@ handleKey code model =
     -- d: 68
     if (Debug.log "keycode:" code) == 69 then
         { model
-            | componentData = createFadingPing model.componentData model.previousTick ( 0, 0 ) red 30000
-            , newComponentData = createEntity model.previousTick PingEntity (createPingEntity (Vec2 0 0) 10) model.newComponentData
+            | newComponentData = createEntity model.previousTick PingEntity (createPingEntity (Vec2 0 0) 10) model.newComponentData
         }
     else
         model
