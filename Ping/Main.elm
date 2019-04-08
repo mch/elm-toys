@@ -57,8 +57,8 @@ type alias NewComponentData =
     , ping : Dict.Dict EntityId Ping
 
     -- The following fields are for keeping track of how entities interact with each other.
-    , newBoundingCircleOverlaps : List (EntityId, EntityId)
-    , existingBoundingCircleOverlaps : List (EntityId, EntityId)
+    , newBoundingCircleOverlaps : List (EntityId, EntityId, EntityType, EntityType)
+    , existingBoundingCircleOverlaps : List (EntityId, EntityId, EntityType, EntityType)
     }
 
 initNewComponentData =
@@ -126,7 +126,7 @@ type LifeCycleState =
 
 type alias Vec2 = {x: Float, y: Float}
 
-type EntityType = PlayerEntity | TargetEntity | PingEntity | ProjectileEntity
+type EntityType = PlayerEntity | TargetEntity | PingEntity | ProjectileEntity | ExplosionEntity
 
 setEntityType : EntityId -> EntityType -> NewComponentData -> NewComponentData
 setEntityType id entityType data =
@@ -224,6 +224,14 @@ createProjectileEntity position velocity time id data =
         |> addComponent id (PathComponent (Path 0 (Velocity velocity) (Vec2 0 0) (Vec2 0 0)))
 
 
+createExplosionEntity : Vec2 -> Time -> EntityId -> NewComponentData -> NewComponentData
+createExplosionEntity position time id data =
+    data
+        |> addComponent id (BoundingCircleComponent 10)
+        |> addComponent id (TransformationComponent (Transformation position (Vec2 0 0) (Vec2 0 0)))
+        |> addComponent id (LifeCycleComponent (LifeCycle time (Just 1000) Alive))
+
+
 updatePingEntity : Time -> EntityId -> NewComponentData -> NewComponentData
 updatePingEntity dt id data =
     let
@@ -267,10 +275,26 @@ updateNewComponentData t model =
             in
                 deleteEntities oldPings data
 
+        filterDeadEntities t data =
+            let
+                entities = Dict.filter (\id lifeCycle ->
+                                       case lifeCycle.ttl of
+                                           Nothing -> False
+                                           Just ttl ->
+                                               if t > lifeCycle.birthTime + ttl then
+                                                   True
+                                               else
+                                                   False
+                                       ) data.lifeCycle
+                           |> Dict.keys
+            in
+                deleteEntities entities data
+
         dt = t - model.previousTick
 
         updatedData = List.foldl (updatePingEntity dt) data pingEntities
                      |> filterOldPings t
+                     |> filterDeadEntities t
                      |> detectOverlaps
                      |> processTargets t
                      |> followPaths t dt
@@ -291,13 +315,14 @@ detectOverlaps data =
             Dict.keys data.boundingCircle
 
         lookupComponents id =
-            Maybe.map2 (\t radius -> (id, t.translation, radius))
+            Maybe.map3 (\et t radius -> (id, et, t.translation, radius))
+                (Dict.get id data.entityType)
                 (Dict.get id data.transformation)
                 (Dict.get id data.boundingCircle)
 
         -- Sort the list of bounding circles by id so that we can skip comparing
         -- the same items twice
-        circleComparitor (id1, _, _) (id2, _, _) =
+        circleComparitor (id1, _, _, _) (id2, _, _, _) =
             if id1 == id2 then
                 EQ
             else
@@ -325,7 +350,7 @@ detectOverlaps data =
         , existingBoundingCircleOverlaps = overlaps
         }
 
-compareCircles (id1, t1, r1) (id2, t2, r2) =
+compareCircles (id1, et1, t1, r1) (id2, et2, t2, r2) =
     if id1 == id2 || id1 > id2 then
         Nothing
     else
@@ -340,7 +365,7 @@ compareCircles (id1, t1, r1) (id2, t2, r2) =
             -- circle is fully within another, that is not considered an
             -- intersection, because that is not what we want for pings.
             if r1 + r2 > d && r2 < d + r1 && r1 < d + r2 then
-                Just (id1, id2)
+                Just (id1, id2, et1, et2)
             else
                 Nothing
 
@@ -364,8 +389,8 @@ processTarget time id data =
 
 processTarget2 id time data transform path lifeCycle =
     let
-        createPingReflection translation (id1, id2) data =
-            if id1 == id || id2 == id then
+        handleOverlaps translation (id1, id2, et1, et2) data =
+            if (id1 == id || id2 == id) && (et1 == PingEntity || et2 == PingEntity) then
                 -- It would be cool if the initial opacity of the ping related
                 -- to the current opacity of the ping that caused this
                 -- reflection... But the original pings don't fade very fast
@@ -376,10 +401,16 @@ processTarget2 id time data transform path lifeCycle =
                     createEntity time PingEntity (createPingEntity translation 1) data
                         |> removeComponent newPingId (BoundingCircleComponent 0) -- so that it can't create other pings
                         |> updatePingTime id time
+            else if (id1 == id || id2 == id) && (et1 == ProjectileEntity || et2 == ProjectileEntity) then
+                let
+                    newId = data.nextEntityId
+                in
+                    createEntity time ExplosionEntity (createExplosionEntity translation) data
+                        |> deleteEntities [id] -- One hit kill for now
             else
                 data
     in
-        List.foldl (createPingReflection transform.translation) data data.newBoundingCircleOverlaps
+        List.foldl (handleOverlaps transform.translation) data data.newBoundingCircleOverlaps
 
 
 followPaths : Time -> Time -> NewComponentData -> NewComponentData
@@ -506,8 +537,13 @@ view model =
                 |> List.map (drawProjectile model.newComponentData)
                 |> List.filterMap identity
 
+        explosions =
+            getEntitiesOfType ExplosionEntity model.newComponentData
+                |> List.map (drawExplosion model.previousTick model.newComponentData)
+                |> List.filterMap identity
+
         gameBoard =
-            collage collageWidth collageHeight (targets ++ player ++ pings ++ projectiles)
+            collage collageWidth collageHeight (targets ++ player ++ pings ++ projectiles ++ explosions)
                 |> toHtml
     in
         div []
@@ -573,6 +609,24 @@ drawProjectile data id =
                 |> move (t.translation.x, t.translation.y)
     in
         Maybe.map draw t
+
+
+drawExplosion time data id =
+    let
+        t = Dict.get id data.transformation
+        lifeCycle = Dict.get id data.lifeCycle
+
+        draw t lifeCycle =
+            let
+                ttl = Maybe.withDefault (1 * second) lifeCycle.ttl
+                dt = (time - lifeCycle.birthTime) / ttl
+                radius = 20 * (Ease.inOutBounce dt)
+            in
+                Collage.circle radius
+                    |> filled yellow
+                    |> move (t.translation.x, t.translation.y)
+    in
+        Maybe.map2 draw t lifeCycle
 
 adjustAlpha : Color -> Float -> Color
 adjustAlpha c i =
