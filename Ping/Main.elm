@@ -406,7 +406,7 @@ processTarget2 id time data transform path lifeCycle =
                     newId = data.nextEntityId
                 in
                     createEntity time ExplosionEntity (createExplosionEntity translation) data
-                        |> deleteEntities [id] -- One hit kill for now
+                        |> deleteEntities [id1, id2] -- One hit kill for now
             else
                 data
     in
