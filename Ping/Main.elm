@@ -141,6 +141,7 @@ type PathType = None
               | Ellipse
               | Lissajous
               | Hypotrochoid
+              | Velocity Vec2
 
 type LifeCycleState =
     Alive | Dead
@@ -286,6 +287,7 @@ updateNewComponentData t model =
                      |> filterOldPings t
                      |> detectOverlaps
                      |> processTargets t
+                     |> followPaths t dt
     in
         { model | newComponentData = updatedData }
 
@@ -387,10 +389,25 @@ processTarget2 id time data transform path lifeCycle =
                 data
     in
         List.foldl (createPingReflection transform.translation) data data.newBoundingCircleOverlaps
-            |> moveTargetAlongPath id time transform path lifeCycle
 
 
-moveTargetAlongPath id time transform path lifeCycle data =
+followPaths : Time -> Time -> NewComponentData -> NewComponentData
+followPaths t dt data =
+    let
+        paths = Dict.keys data.path
+
+        update id data =
+            let
+                path = Dict.get id data.path
+                transform = Dict.get id data.transformation
+                lifeCycle = Dict.get id data.lifeCycle
+            in
+                Maybe.withDefault data (Maybe.map3 (updateTransformFollowingPath id t dt data) path transform lifeCycle)
+    in
+        List.foldl update data paths
+
+
+updateTransformFollowingPath id time dt data path transform lifeCycle =
     case path.pathType of
         None ->
             data
@@ -402,8 +419,6 @@ moveTargetAlongPath id time transform path lifeCycle data =
                 translation =
                     Vec2 (path.offset.x + path.scale.x * (cos angle))
                         (path.offset.y + path.scale.y * (sin angle))
-
-                updatedTransform = { transform | translation = translation }
             in
                 { data | transformation = Dict.update id (\t -> Maybe.map (\t -> { t | translation = translation }) t) data.transformation }
         Ellipse ->
@@ -412,6 +427,13 @@ moveTargetAlongPath id time transform path lifeCycle data =
             data
         Hypotrochoid ->
             data
+        Velocity velocity ->
+            let
+                updateTransform t =
+                    { t | translation = Vec2 (t.translation.x + velocity.x * dt) (t.translation.y + velocity.y * dt) }
+            in
+                { data | transformation = Dict.update id (\t -> Maybe.map (\t -> updateTransform t) t) data.transformation}
+
 
 updatePingTime id t data =
     { data | pingable = Dict.update id (\p -> Maybe.map (\p -> { p | pingTime = t }) p) data.pingable }
