@@ -28,21 +28,6 @@ type alias EntityId =
     Int
 
 
-{- If this was more of a component-entity-system (CES), a Ping or Target would
-      just be an integer, the entity id, and there would be components like a
-      drawable component which would contain data like shapes, colors, etc, a
-      motion component with speed, a system for modifying the drawable based on
-      the speed...
-
-   TODO
-   - Add functions to clear an entity from all component collections
-   - Make it easier to add an entity that involves multiple components
-   - Make it easier to add an entity that only involves one component, because of
-     the need to update nextEntityId
-   - Entity life cycle: how do we know when to delete a component that is finished?
--}
-
-
 type alias Model =
     { nextEntityId : EntityId
     , score : Int
@@ -115,6 +100,8 @@ type alias Pingable =
     { pingTime : Time
     }
 
+-- This representation isn't quite right; the lapTime doesn't apply to all path
+-- types for example, and neither do offset or scale.
 type alias Path =
     { lapTime : Time -- The time taken to make one lap around the path
     , pathType : PathType
@@ -139,7 +126,7 @@ type LifeCycleState =
 
 type alias Vec2 = {x: Float, y: Float}
 
-type EntityType = PlayerEntity | TargetEntity | PingEntity
+type EntityType = PlayerEntity | TargetEntity | PingEntity | ProjectileEntity
 
 setEntityType : EntityId -> EntityType -> NewComponentData -> NewComponentData
 setEntityType id entityType data =
@@ -229,6 +216,14 @@ createPingEntity position ttl t id data =
         |> addComponent id (LifeCycleComponent (LifeCycle t (Just (ttl * second)) Alive))
 
 
+createProjectileEntity : Vec2 -> Vec2 -> Time -> EntityId -> NewComponentData -> NewComponentData
+createProjectileEntity position velocity time id data =
+    data
+        |> addComponent id (BoundingCircleComponent 5)
+        |> addComponent id (TransformationComponent (Transformation position (Vec2 1 1) (Vec2 0 0)))
+        |> addComponent id (PathComponent (Path 0 (Velocity velocity) (Vec2 0 0) (Vec2 0 0)))
+
+
 updatePingEntity : Time -> EntityId -> NewComponentData -> NewComponentData
 updatePingEntity dt id data =
     let
@@ -281,6 +276,11 @@ updateNewComponentData t model =
                      |> followPaths t dt
     in
         { model | newComponentData = updatedData }
+
+
+updateComponent : EntityId -> (a -> a) -> (Dict.Dict EntityId a) -> (Dict.Dict EntityId a)
+updateComponent id f d =
+    Dict.update id (\item -> Maybe.map f item) d
 
 
 -- Finds overlapping entities by checking their bounding circles, and stores the results.
@@ -411,7 +411,7 @@ updateTransformFollowingPath id time dt data path transform lifeCycle =
                     Vec2 (path.offset.x + path.scale.x * (cos angle))
                         (path.offset.y + path.scale.y * (sin angle))
             in
-                { data | transformation = Dict.update id (\t -> Maybe.map (\t -> { t | translation = translation }) t) data.transformation }
+                { data | transformation = updateComponent id (\t -> { t | translation = translation }) data.transformation }
         Ellipse ->
             data
         Lissajous ->
@@ -423,11 +423,11 @@ updateTransformFollowingPath id time dt data path transform lifeCycle =
                 updateTransform t =
                     { t | translation = Vec2 (t.translation.x + velocity.x * dt) (t.translation.y + velocity.y * dt) }
             in
-                { data | transformation = Dict.update id (\t -> Maybe.map (\t -> updateTransform t) t) data.transformation}
+                { data | transformation = updateComponent id (\t -> updateTransform t) data.transformation}
 
 
 updatePingTime id t data =
-    { data | pingable = Dict.update id (\p -> Maybe.map (\p -> { p | pingTime = t }) p) data.pingable }
+    { data | pingable = updateComponent id (\p -> { p | pingTime = t }) data.pingable }
 
 
 -- Removes all components for each entity in the list.
@@ -501,8 +501,13 @@ view model =
                 |> List.map (drawPlayer model.newComponentData)
                 |> List.filterMap identity
 
+        projectiles =
+            getEntitiesOfType ProjectileEntity model.newComponentData
+                |> List.map (drawProjectile model.newComponentData)
+                |> List.filterMap identity
+
         gameBoard =
-            collage collageWidth collageHeight (targets ++ player ++ pings)
+            collage collageWidth collageHeight (targets ++ player ++ pings ++ projectiles)
                 |> toHtml
     in
         div []
@@ -558,6 +563,17 @@ drawPing3 time transform ping lifeCycle =
                 |> move (translation.x, translation.y)
 
 
+drawProjectile data id =
+    let
+        t = Dict.get id data.transformation
+
+        draw t =
+            Collage.circle 5
+                |> filled red
+                |> move (t.translation.x, t.translation.y)
+    in
+        Maybe.map draw t
+
 adjustAlpha : Color -> Float -> Color
 adjustAlpha c i =
     let
@@ -601,11 +617,20 @@ updateFromInput time model =
         Just position ->
             { model
                 | lastClick = Nothing
+                , newComponentData = shootProjectile model.previousTick position model.newComponentData
             }
 
         Nothing ->
             model
 
+shootProjectile time position data =
+    let
+        positionMagnitude = sqrt ( position.x ^ 2 + position.y ^ 2)
+        normPosition = Vec2 (position.x / positionMagnitude) (position.y / positionMagnitude)
+        projectileSpeed = 1.0
+        velocity = Vec2 (normPosition.x * projectileSpeed) (normPosition.y * projectileSpeed)
+    in
+        createEntity time ProjectileEntity (createProjectileEntity (Vec2 0 0) velocity) data
 
 handleClick : Float -> Float -> Model -> Model
 handleClick px py model =
