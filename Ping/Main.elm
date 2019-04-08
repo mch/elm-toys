@@ -29,24 +29,20 @@ type alias EntityId =
 
 
 type alias Model =
-    { nextEntityId : EntityId
-    , score : Int
+    { score : Int
     , previousTick : Time
     , lastClick : Maybe Vec2
-    -- Another shot at more generic components
-    , newComponentData : NewComponentData
+    , newComponentData : ComponentData
     }
 
-{- A different way of representing component data.
+{- Keeps track of all data related to entities.
 
-Rather than having a lot of specialized components, create more generic
-components that can be more broadly used, and add a dictionary to keep track of
-the type of entity so that rendering functions and systems know what to do with
-the component data that forms a particular type of entity.
+Includes data for specific components and data for systems that relate multiple
+entities or components.
 
 -}
 
-type alias NewComponentData =
+type alias ComponentData =
     { nextEntityId : EntityId
     , entityType : Dict.Dict EntityId EntityType
     , transformation : Dict.Dict EntityId Transformation
@@ -59,9 +55,13 @@ type alias NewComponentData =
     -- The following fields are for keeping track of how entities interact with each other.
     , newBoundingCircleOverlaps : List (EntityId, EntityId, EntityType, EntityType)
     , existingBoundingCircleOverlaps : List (EntityId, EntityId, EntityType, EntityType)
+
+    -- A list of events that might be of interest to the higher level game, used
+    -- to update the score, change levels, and so on.
+    , events : List GameEvent
     }
 
-initNewComponentData =
+initComponentData =
     { nextEntityId = 0
     , entityType = Dict.empty
     , transformation = Dict.empty
@@ -74,6 +74,9 @@ initNewComponentData =
     -- System data
     , newBoundingCircleOverlaps = []
     , existingBoundingCircleOverlaps = []
+
+    -- Game events
+    , events = []
     }
 
 type NewComponent
@@ -100,26 +103,20 @@ type alias Pingable =
     { pingTime : Time
     }
 
--- This representation isn't quite right; the lapTime doesn't apply to all path
--- types for example, and neither do offset or scale.
-type alias Path =
-    { lapTime : Time -- The time taken to make one lap around the path
-    , pathType : PathType
-    , offset : Vec2
-    , scale : Vec2
-    }
+type Path = None
+          | Circle Vec2 Float
+          | Ellipse Vec2 Float Float Float
+          | Lissajous Vec2 Float Float Float Float Float
+          | Hypotrochoid
+          | Velocity Vec2
 
 type alias Ping =
     { radius : Float
     , color : Color
     }
 
-type PathType = None
-              | Circle
-              | Ellipse
-              | Lissajous
-              | Hypotrochoid
-              | Velocity Vec2
+type GameEvent = TargetDestroyed
+
 
 type LifeCycleState =
     Alive | Dead
@@ -128,20 +125,20 @@ type alias Vec2 = {x: Float, y: Float}
 
 type EntityType = PlayerEntity | TargetEntity | PingEntity | ProjectileEntity | ExplosionEntity
 
-setEntityType : EntityId -> EntityType -> NewComponentData -> NewComponentData
+setEntityType : EntityId -> EntityType -> ComponentData -> ComponentData
 setEntityType id entityType data =
     { data | entityType = Dict.insert id entityType data.entityType }
 
-getEntitiesOfType : EntityType -> NewComponentData -> List EntityId
+getEntitiesOfType : EntityType -> ComponentData -> List EntityId
 getEntitiesOfType entityType data =
     Dict.filter (\k v -> v == entityType) data.entityType
         |> Dict.keys
 
-incrementNextEntityId : NewComponentData -> NewComponentData
+incrementNextEntityId : ComponentData -> ComponentData
 incrementNextEntityId data =
     { data | nextEntityId = data.nextEntityId + 1 }
 
-addComponent : EntityId -> NewComponent -> NewComponentData -> NewComponentData
+addComponent : EntityId -> NewComponent -> ComponentData -> ComponentData
 addComponent id comp data =
     case comp of
         TransformationComponent componentData ->
@@ -165,7 +162,7 @@ addComponent id comp data =
 -- Hmm, don't like that I have to provide the data for NewComponent when all I
 -- want to do is just remove it, but that is the way things are defined right
 -- now...
-removeComponent : EntityId -> NewComponent -> NewComponentData -> NewComponentData
+removeComponent : EntityId -> NewComponent -> ComponentData -> ComponentData
 removeComponent id comp data =
     case comp of
         TransformationComponent componentData ->
@@ -186,7 +183,7 @@ removeComponent id comp data =
         PingComponent ping ->
             { data | ping = Dict.remove id data.ping }
 
-createPlayerEntity : Time -> EntityId -> NewComponentData -> NewComponentData
+createPlayerEntity : Time -> EntityId -> ComponentData -> ComponentData
 createPlayerEntity t id data =
     let
         transformation = TransformationComponent (Transformation (Vec2 0 0) (Vec2 1 1) (Vec2 0 0))
@@ -194,7 +191,7 @@ createPlayerEntity t id data =
         data
         |> addComponent id transformation
 
-createTargetEntity : Time -> EntityId -> NewComponentData -> NewComponentData
+createTargetEntity : Time -> EntityId -> ComponentData -> ComponentData
 createTargetEntity t id data =
     let
         transformation = TransformationComponent (Transformation (Vec2 -50 -50) (Vec2 1 1) (Vec2 0 0))
@@ -203,11 +200,11 @@ createTargetEntity t id data =
     in
         data
         |> addComponent id transformation
-        |> addComponent id (PathComponent (Path 10 Circle (Vec2 0 0) (Vec2 100 100)))
+        |> addComponent id (PathComponent (Circle (Vec2 0 0) 100))
         |> addComponent id pingable
         |> addComponent id (BoundingCircleComponent 20)
 
-createPingEntity : Vec2 -> Time -> Time -> EntityId -> NewComponentData -> NewComponentData
+createPingEntity : Vec2 -> Time -> Time -> EntityId -> ComponentData -> ComponentData
 createPingEntity position ttl t id data =
     data
         |> addComponent id (BoundingCircleComponent 10)
@@ -216,15 +213,15 @@ createPingEntity position ttl t id data =
         |> addComponent id (LifeCycleComponent (LifeCycle t (Just (ttl * second)) Alive))
 
 
-createProjectileEntity : Vec2 -> Vec2 -> Time -> EntityId -> NewComponentData -> NewComponentData
+createProjectileEntity : Vec2 -> Vec2 -> Time -> EntityId -> ComponentData -> ComponentData
 createProjectileEntity position velocity time id data =
     data
         |> addComponent id (BoundingCircleComponent 5)
         |> addComponent id (TransformationComponent (Transformation position (Vec2 1 1) (Vec2 0 0)))
-        |> addComponent id (PathComponent (Path 0 (Velocity velocity) (Vec2 0 0) (Vec2 0 0)))
+        |> addComponent id (PathComponent (Velocity velocity))
 
 
-createExplosionEntity : Vec2 -> Time -> EntityId -> NewComponentData -> NewComponentData
+createExplosionEntity : Vec2 -> Time -> EntityId -> ComponentData -> ComponentData
 createExplosionEntity position time id data =
     data
         |> addComponent id (BoundingCircleComponent 10)
@@ -232,7 +229,7 @@ createExplosionEntity position time id data =
         |> addComponent id (LifeCycleComponent (LifeCycle time (Just 1000) Alive))
 
 
-updatePingEntity : Time -> EntityId -> NewComponentData -> NewComponentData
+updatePingEntity : Time -> EntityId -> ComponentData -> ComponentData
 updatePingEntity dt id data =
     let
         update radius =
@@ -244,9 +241,9 @@ updatePingEntity dt id data =
         { data | boundingCircle = Dict.update id update data.boundingCircle
         , ping = Dict.update id updatePing data.ping }
 
-type alias EntityCreator = (Time -> EntityId -> NewComponentData -> NewComponentData)
+type alias EntityCreator = (Time -> EntityId -> ComponentData -> ComponentData)
 
-createEntity : Time -> EntityType -> EntityCreator -> NewComponentData -> NewComponentData
+createEntity : Time -> EntityType -> EntityCreator -> ComponentData -> ComponentData
 createEntity t et f data =
     let
         id = data.nextEntityId
@@ -260,8 +257,8 @@ createEntity t et f data =
             |> incrementNextEntityId
 
 
-updateNewComponentData : Time -> Model -> Model
-updateNewComponentData t model =
+updateComponentData : Time -> Model -> Model
+updateComponentData t model =
     let
         data = model.newComponentData
 
@@ -308,7 +305,7 @@ updateComponent id f d =
 
 
 -- Finds overlapping entities by checking their bounding circles, and stores the results.
-detectOverlaps : NewComponentData -> NewComponentData
+detectOverlaps : ComponentData -> ComponentData
 detectOverlaps data =
     let
         entities =
@@ -372,7 +369,7 @@ compareCircles (id1, et1, t1, r1) (id2, et2, t2, r2) =
 
 -- Processes targets, creating new reflected pings if they were just pinged,
 -- moving them, handling damage from weapons, etc.
-processTargets : Time -> NewComponentData -> NewComponentData
+processTargets : Time -> ComponentData -> ComponentData
 processTargets t data =
     let
         entities = getEntitiesOfType TargetEntity data
@@ -407,13 +404,14 @@ processTarget2 id time data transform path lifeCycle =
                 in
                     createEntity time ExplosionEntity (createExplosionEntity translation) data
                         |> deleteEntities [id1, id2] -- One hit kill for now
+                        |> (\data -> { data | events = TargetDestroyed :: data.events } )
             else
                 data
     in
         List.foldl (handleOverlaps transform.translation) data data.newBoundingCircleOverlaps
 
 
-followPaths : Time -> Time -> NewComponentData -> NewComponentData
+followPaths : Time -> Time -> ComponentData -> ComponentData
 followPaths t dt data =
     let
         paths = Dict.keys data.path
@@ -430,23 +428,48 @@ followPaths t dt data =
 
 
 updateTransformFollowingPath id time dt data path transform lifeCycle =
-    case path.pathType of
+    case path of
         None ->
             data
-        Circle ->
+        Circle centre radius ->
             let
                 angle =
                     (time - lifeCycle.birthTime) / 1000
 
                 translation =
-                    Vec2 (path.offset.x + path.scale.x * (cos angle))
-                        (path.offset.y + path.scale.y * (sin angle))
+                    Vec2 (centre.x + radius * (cos angle))
+                        (centre.y + radius * (sin angle))
             in
                 { data | transformation = updateComponent id (\t -> { t | translation = translation }) data.transformation }
-        Ellipse ->
-            data
-        Lissajous ->
-            data
+
+        Ellipse centre major minor phi ->
+            let
+                angle =
+                    (time - lifeCycle.birthTime) / 1000
+
+                translation =
+                    Vec2 (centre.x + major * (cos angle) * (cos phi) - minor * (sin angle) * (sin phi))
+                        (centre.y + major * (cos angle) * (sin phi) - minor * (sin angle) * (cos phi))
+            in
+                { data | transformation = updateComponent id (\t -> { t | translation = translation }) data.transformation }
+
+        Lissajous centre kx ky major minor phi->
+            let
+                angle =
+                    (time - lifeCycle.birthTime) / 1000
+
+                majorAngle =
+                    kx * angle
+
+                minorAngle =
+                    ky * angle
+
+                translation =
+                    Vec2 (centre.x + major * (cos majorAngle) * (cos phi) - minor * (sin minorAngle) * (sin phi))
+                        (centre.y + major * (cos majorAngle) * (sin phi) - minor * (sin minorAngle) * (cos phi))
+            in
+                { data | transformation = updateComponent id (\t -> { t | translation = translation }) data.transformation }
+
         Hypotrochoid ->
             data
         Velocity velocity ->
@@ -462,7 +485,7 @@ updatePingTime id t data =
 
 
 -- Removes all components for each entity in the list.
-deleteEntities : List EntityId -> NewComponentData -> NewComponentData
+deleteEntities : List EntityId -> ComponentData -> ComponentData
 deleteEntities entities data =
     let
         -- How do we ensure this gets updated if a new component is added?
@@ -484,7 +507,7 @@ init : ( Model, Cmd Msg )
 init =
     let
         empty =
-            Model 0 0 0 Nothing initNewComponentData
+            Model 0 0 Nothing initComponentData
     in
         ( empty, Cmd.none )
 
@@ -652,7 +675,7 @@ update action model =
                 Tick t ->
                     model
                         |> createInitialEntities t
-                        |> updateNewComponentData t
+                        |> updateComponentData t
                         |> updateFromInput t
                         |> updatePreviousTime t
 
