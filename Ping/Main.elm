@@ -159,30 +159,6 @@ addComponent id comp data =
         PingComponent ping ->
             { data | ping = Dict.insert id ping data.ping }
 
--- Hmm, don't like that I have to provide the data for NewComponent when all I
--- want to do is just remove it, but that is the way things are defined right
--- now...
-removeComponent : EntityId -> NewComponent -> ComponentData -> ComponentData
-removeComponent id comp data =
-    case comp of
-        TransformationComponent componentData ->
-            { data | transformation = Dict.remove id data.transformation }
-
-        LifeCycleComponent componentData ->
-            { data | lifeCycle = Dict.remove id data.lifeCycle }
-
-        PingableComponent componentData ->
-            { data | pingable = Dict.remove id data.pingable }
-
-        BoundingCircleComponent radius ->
-            { data | boundingCircle = Dict.remove id data.boundingCircle }
-
-        PathComponent path ->
-            { data | path = Dict.remove id data.path }
-
-        PingComponent ping ->
-            { data | ping = Dict.remove id data.ping }
-
 createPlayerEntity : Time -> EntityId -> ComponentData -> ComponentData
 createPlayerEntity t id data =
     let
@@ -396,7 +372,7 @@ processTarget2 id time data transform path lifeCycle =
                     newPingId = data.nextEntityId
                 in
                     createEntity time PingEntity (createPingEntity translation 1) data
-                        |> removeComponent newPingId (BoundingCircleComponent 0) -- so that it can't create other pings
+                        |> (\data -> { data | boundingCircle = Dict.remove newPingId data.boundingCircle })
                         |> updatePingTime id time
             else if (id1 == id || id2 == id) && (et1 == ProjectileEntity || et2 == ProjectileEntity) then
                 let
