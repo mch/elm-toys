@@ -680,13 +680,16 @@ updateFromInput time model =
         Nothing ->
             model
 
+getPlayerPosition data =
+    List.head (getEntitiesOfType PlayerEntity data)
+        |> Maybe.andThen (\id -> Dict.get id data.transformation)
+        |> Maybe.map (\t -> t.translation)
+        |> Maybe.withDefault (Vec2 0 0)
+
 shootProjectile time position data =
     let
         playerPosition =
-            List.head (getEntitiesOfType PlayerEntity data)
-                |> Maybe.andThen (\id -> Dict.get id data.transformation)
-                |> Maybe.map (\t -> t.translation)
-                |> Maybe.withDefault (Vec2 0 0)
+            getPlayerPosition data
 
         v =
             Vec2 (position.x - playerPosition.x) (position.y - playerPosition.y)
@@ -717,6 +720,7 @@ handleKeyDown code model =
     -- Add something for boundary conditions, e.g. the player's boundary
     -- condition might be to slow down as it approaches the boundary, while a
     -- projectiles might be to continue out and then have it's entity deleted.
+    -- The player might also wrap around to the other side.
 
     -- e: 69
     -- w: 87
@@ -738,14 +742,10 @@ handleKeyUp code model =
 
 pingPlayer time data =
     let
-        playerId = List.head (getEntitiesOfType PlayerEntity data)
-
-        transform = Maybe.andThen (\playerId -> Dict.get playerId data.transformation) playerId
-
-        pingPlayer2 transform =
-            createEntity time PingEntity (createPingEntity transform.translation 10) data
+        playerPosition =
+            getPlayerPosition data
     in
-        Maybe.withDefault data (Maybe.map pingPlayer2 transform)
+        createEntity time PingEntity (createPingEntity playerPosition 10) data
 
 setPlayerVelocity code data =
     let
