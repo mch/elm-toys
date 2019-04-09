@@ -242,7 +242,7 @@ updateComponentData t model =
 
         filterOldPings t data =
             let
-                playAreaRadius = 400
+                playAreaRadius = 1200
                 oldPings = Dict.filter (\id radius -> radius > playAreaRadius) data.boundingCircle
                          |> Dict.keys
             in
@@ -507,6 +507,7 @@ type Msg
     = Tick Time
     | Click ( Float, Float )
     | KeyDown Keyboard.KeyCode
+    | KeyUp Keyboard.KeyCode
 
 
 
@@ -659,7 +660,10 @@ update action model =
                     handleClick px py model
 
                 KeyDown code ->
-                    handleKey code model
+                    handleKeyDown code model
+
+                KeyUp code ->
+                    handleKeyUp code model
     in
         ( newModel, Cmd.none )
 
@@ -678,19 +682,42 @@ updateFromInput time model =
 
 shootProjectile time position data =
     let
-        positionMagnitude = sqrt ( position.x ^ 2 + position.y ^ 2)
-        normPosition = Vec2 (position.x / positionMagnitude) (position.y / positionMagnitude)
-        projectileSpeed = 1.0
-        velocity = Vec2 (normPosition.x * projectileSpeed) (normPosition.y * projectileSpeed)
+        playerPosition =
+            List.head (getEntitiesOfType PlayerEntity data)
+                |> Maybe.andThen (\id -> Dict.get id data.transformation)
+                |> Maybe.map (\t -> t.translation)
+                |> Maybe.withDefault (Vec2 0 0)
+
+        v =
+            Vec2 (position.x - playerPosition.x) (position.y - playerPosition.y)
+
+        magnitude =
+            sqrt ( v.x ^ 2 + v.y ^ 2)
+
+        normalized =
+            Vec2 (v.x / magnitude) (v.y / magnitude)
+
+        projectileSpeed =
+            1.0
+
+        velocity =
+            Vec2 (normalized.x * projectileSpeed) (normalized.y * projectileSpeed)
     in
-        createEntity time ProjectileEntity (createProjectileEntity (Vec2 0 0) velocity) data
+        createEntity time ProjectileEntity (createProjectileEntity playerPosition velocity) data
 
 handleClick : Float -> Float -> Model -> Model
 handleClick px py model =
     { model | lastClick = Just ( Vec2 px py ) }
 
 
-handleKey code model =
+handleKeyDown code model =
+    -- When the key goes down, set the player's Path to a Velocity, and when it
+    -- goes up, remove that component.
+    --
+    -- Add something for boundary conditions, e.g. the player's boundary
+    -- condition might be to slow down as it approaches the boundary, while a
+    -- projectiles might be to continue out and then have it's entity deleted.
+
     -- e: 69
     -- w: 87
     -- a: 65
@@ -699,7 +726,13 @@ handleKey code model =
     if (Debug.log "keycode:" code) == 69 then
         { model | newComponentData = pingPlayer model.previousTick model.newComponentData }
     else if code == 87 || code == 65 || code == 83 || code == 68 then
-        { model | newComponentData = movePlayer code model.newComponentData }
+        { model | newComponentData = setPlayerVelocity code model.newComponentData }
+    else
+        model
+
+handleKeyUp code model =
+    if code == 87 || code == 65 || code == 83 || code == 68 then
+        { model | newComponentData = removePlayerVelocity model.newComponentData }
     else
         model
 
@@ -714,37 +747,54 @@ pingPlayer time data =
     in
         Maybe.withDefault data (Maybe.map pingPlayer2 transform)
 
-movePlayer code data =
+setPlayerVelocity code data =
     let
-        xInc =
+        speed = 1
+
+        xVelocity =
             if code == 65 then
-                -1
+                -speed
             else if code == 68 then
-                1
+                speed
             else
                 0
 
-        yInc =
+        yVelocity =
             if code == 83 then
-                -1
+                -speed
             else if code == 87 then
-                1
+                speed
             else
                 0
 
-        playerId = List.head (getEntitiesOfType PlayerEntity data)
+        playerId =
+            List.head (getEntitiesOfType PlayerEntity data)
+
+        existingPath =
+            Maybe.andThen (\id -> Dict.get id data.path) playerId
+                |> Maybe.withDefault (Velocity (Vec2 0 0))
+
+        newPath =
+            case existingPath of
+                Velocity v ->
+                    Velocity (Vec2 (v.x + xVelocity) (v.y + yVelocity))
+                _ ->
+                    Velocity (Vec2 xVelocity yVelocity)
 
         updatePlayer id =
-            let
-                t = Dict.get id data.transformation
-            in
-                { data | transformation = updateComponent id updatePlayer2 data.transformation }
-
-        updatePlayer2 t =
-            { t | translation = Vec2 (t.translation.x + xInc) (t.translation.y + yInc) }
+            addComponent id (PathComponent newPath) data
     in
         Maybe.withDefault data (Maybe.map updatePlayer playerId)
 
+
+removePlayerVelocity data =
+    let
+        playerId = List.head (getEntitiesOfType PlayerEntity data)
+
+        removePath id =
+            { data | path = Dict.remove id data.path }
+    in
+        Maybe.withDefault data (Maybe.map removePath playerId)
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
 mouseToCollage ( mx, my ) ( wx, wy ) =
@@ -767,5 +817,6 @@ main =
                     [ AnimationFrame.times Tick
                     , clickSub
                     , Keyboard.downs KeyDown
+                    , Keyboard.ups KeyUp
                     ]
         }
