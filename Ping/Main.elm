@@ -721,11 +721,53 @@ handleKey code model =
     -- s: 83
     -- d: 68
     if (Debug.log "keycode:" code) == 69 then
-        { model
-            | newComponentData = createEntity model.previousTick PingEntity (createPingEntity (Vec2 0 0) 10) model.newComponentData
-        }
+        { model | newComponentData = pingPlayer model.previousTick model.newComponentData }
+    else if code == 87 || code == 65 || code == 83 || code == 68 then
+        { model | newComponentData = movePlayer code model.newComponentData }
     else
         model
+
+pingPlayer time data =
+    let
+        playerId = List.head (getEntitiesOfType PlayerEntity data)
+
+        transform = Maybe.andThen (\playerId -> Dict.get playerId data.transformation) playerId
+
+        pingPlayer2 transform =
+            createEntity time PingEntity (createPingEntity transform.translation 10) data
+    in
+        Maybe.withDefault data (Maybe.map pingPlayer2 transform)
+
+movePlayer code data =
+    let
+        xInc =
+            if code == 65 then
+                -1
+            else if code == 68 then
+                1
+            else
+                0
+
+        yInc =
+            if code == 83 then
+                -1
+            else if code == 87 then
+                1
+            else
+                0
+
+        playerId = List.head (getEntitiesOfType PlayerEntity data)
+
+        updatePlayer id =
+            let
+                t = Dict.get id data.transformation
+            in
+                { data | transformation = updateComponent id updatePlayer2 data.transformation }
+
+        updatePlayer2 t =
+            { t | translation = Vec2 (t.translation.x + xInc) (t.translation.y + yInc) }
+    in
+        Maybe.withDefault data (Maybe.map updatePlayer playerId)
 
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
