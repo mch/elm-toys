@@ -12,6 +12,7 @@ import Element exposing (toHtml)
 import Html exposing (..)
 import Keyboard
 import Mouse
+import Set
 import Task exposing (Task)
 import Time exposing (..)
 import Window
@@ -33,6 +34,7 @@ type alias Model =
     , previousTick : Time
     , lastClick : Maybe Vec2
     , newComponentData : ComponentData
+    , keysDown : Set.Set Keyboard.KeyCode
     }
 
 {- Keeps track of all data related to entities.
@@ -483,7 +485,7 @@ init : ( Model, Cmd Msg )
 init =
     let
         empty =
-            Model 0 0 Nothing initComponentData
+            Model 0 0 Nothing initComponentData Set.empty
     in
         ( empty, Cmd.none )
 
@@ -722,23 +724,32 @@ handleKeyDown code model =
     -- projectiles might be to continue out and then have it's entity deleted.
     -- The player might also wrap around to the other side.
 
+    if not (Set.member code model.keysDown) then
     -- e: 69
     -- w: 87
     -- a: 65
     -- s: 83
     -- d: 68
-    if (Debug.log "keycode:" code) == 69 then
-        { model | newComponentData = pingPlayer model.previousTick model.newComponentData }
-    else if code == 87 || code == 65 || code == 83 || code == 68 then
-        { model | newComponentData = setPlayerVelocity code model.newComponentData }
+        if (Debug.log "keycode:" code) == 69 then
+            { model | newComponentData = pingPlayer model.previousTick model.newComponentData
+            , keysDown = Set.insert code model.keysDown
+            }
+        else if code == 87 || code == 65 || code == 83 || code == 68 then
+            { model | newComponentData = setPlayerVelocity code model.newComponentData
+            , keysDown = Set.insert code model.keysDown
+            }
+        else
+            model
     else
         model
 
 handleKeyUp code model =
     if code == 87 || code == 65 || code == 83 || code == 68 then
-        { model | newComponentData = removePlayerVelocity model.newComponentData }
+        { model | newComponentData = removePlayerVelocity model.newComponentData
+        , keysDown = Set.remove code model.keysDown
+        }
     else
-        model
+        { model | keysDown = Set.remove code model.keysDown }
 
 pingPlayer time data =
     let
