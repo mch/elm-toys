@@ -314,16 +314,32 @@ handleBoundaries data =
                       (adjustment transform.translation.y minY maxY collageHeight)
                 }
 
+        applyDestruction id data =
+            let
+                checkBounds t =
+                    if t.translation.x < -1 * collageWidth / 2
+                        || t.translation.x > collageWidth / 2
+                        || t.translation.y < -1 * collageHeight / 2
+                        || t.translation.y > collageHeight / 2 then
+                        deleteEntities [id] data
+                    else
+                        data
+            in
+                Dict.get id data.transformation
+                    |> Maybe.map checkBounds
+                    |> Maybe.withDefault data
+
         applyBoundary id boundary data =
             case boundary of
                 WrapAroundBoundary ->
                     { data | transformation = updateComponent id applyWrapAround data.transformation }
                 DestructionBoundary ->
-                    data
+                    applyDestruction id data
     in
         Dict.foldl applyBoundary data data.boundary
 
 
+-- A helper function for updating component data that unwraps the Maybe from the Dict.
 updateComponent : EntityId -> (a -> a) -> (Dict.Dict EntityId a) -> (Dict.Dict EntityId a)
 updateComponent id f d =
     Dict.update id (\item -> Maybe.map f item) d
