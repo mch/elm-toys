@@ -53,6 +53,7 @@ type alias ComponentData =
     , boundingCircle : Dict.Dict EntityId Float
     , path : Dict.Dict EntityId Path
     , ping : Dict.Dict EntityId Ping
+    , boundary : Dict.Dict EntityId Boundary
 
     -- The following fields are for keeping track of how entities interact with each other.
     , newBoundingCircleOverlaps : List (EntityId, EntityId, EntityType, EntityType)
@@ -72,6 +73,7 @@ initComponentData =
     , boundingCircle = Dict.empty
     , path = Dict.empty
     , ping = Dict.empty
+    , boundary = Dict.empty
 
     -- System data
     , newBoundingCircleOverlaps = []
@@ -88,6 +90,7 @@ type NewComponent
     | BoundingCircleComponent Float
     | PathComponent Path
     | PingComponent Ping
+    | BoundaryComponent Boundary
 
 type alias Transformation =
     { translation : Vec2
@@ -98,7 +101,6 @@ type alias Transformation =
 type alias LifeCycle =
     { birthTime : Time
     , ttl : Maybe Time -- Number of ms to live, or Nothing to live forever.
-    , state : LifeCycleState
     }
 
 type alias Pingable =
@@ -117,11 +119,10 @@ type alias Ping =
     , color : Color
     }
 
+type Boundary = WrapAroundBoundary
+              | DestructionBoundary
+
 type GameEvent = TargetDestroyed
-
-
-type LifeCycleState =
-    Alive | Dead
 
 type alias Vec2 = {x: Float, y: Float}
 
@@ -161,6 +162,9 @@ addComponent id comp data =
         PingComponent ping ->
             { data | ping = Dict.insert id ping data.ping }
 
+        BoundaryComponent boundary ->
+            { data | boundary = Dict.insert id boundary data.boundary }
+
 createPlayerEntity : Time -> EntityId -> ComponentData -> ComponentData
 createPlayerEntity t id data =
     let
@@ -168,6 +172,7 @@ createPlayerEntity t id data =
     in
         data
         |> addComponent id transformation
+        |> addComponent id (BoundaryComponent WrapAroundBoundary)
 
 createTargetEntity : Time -> EntityId -> ComponentData -> ComponentData
 createTargetEntity t id data =
@@ -188,7 +193,7 @@ createPingEntity position ttl t id data =
         |> addComponent id (BoundingCircleComponent 10)
         |> addComponent id (PingComponent (Ping 10 red))
         |> addComponent id (TransformationComponent (Transformation position (Vec2 1 1) (Vec2 0 0)))
-        |> addComponent id (LifeCycleComponent (LifeCycle t (Just (ttl * second)) Alive))
+        |> addComponent id (LifeCycleComponent (LifeCycle t (Just (ttl * second))))
 
 
 createProjectileEntity : Vec2 -> Vec2 -> Time -> EntityId -> ComponentData -> ComponentData
@@ -197,6 +202,7 @@ createProjectileEntity position velocity time id data =
         |> addComponent id (BoundingCircleComponent 5)
         |> addComponent id (TransformationComponent (Transformation position (Vec2 1 1) (Vec2 0 0)))
         |> addComponent id (PathComponent (Velocity velocity))
+        |> addComponent id (BoundaryComponent DestructionBoundary)
 
 
 createExplosionEntity : Vec2 -> Time -> EntityId -> ComponentData -> ComponentData
@@ -204,7 +210,7 @@ createExplosionEntity position time id data =
     data
         |> addComponent id (BoundingCircleComponent 10)
         |> addComponent id (TransformationComponent (Transformation position (Vec2 0 0) (Vec2 0 0)))
-        |> addComponent id (LifeCycleComponent (LifeCycle time (Just 1000) Alive))
+        |> addComponent id (LifeCycleComponent (LifeCycle time (Just 1000)))
 
 
 updatePingEntity : Time -> EntityId -> ComponentData -> ComponentData
@@ -229,7 +235,7 @@ createEntity t et f data =
         -- Set up the defaults before calling the entity creator, then it can
         -- modify them if it needs to.
         data
-            |> addComponent id (LifeCycleComponent (LifeCycle t Nothing Alive))
+            |> addComponent id (LifeCycleComponent (LifeCycle t Nothing))
             |> setEntityType id et
             |> f t id
             |> incrementNextEntityId
@@ -273,8 +279,49 @@ updateComponentData t model =
                      |> detectOverlaps
                      |> processTargets t
                      |> followPaths t dt
+                     |> handleBoundaries
     in
         { model | newComponentData = updatedData }
+
+
+handleBoundaries data =
+    let
+        applyWrapAround transform =
+            let
+                maxX =
+                    collageWidth / 2
+
+                minX =
+                    -1 * collageWidth / 2
+
+                maxY =
+                    collageHeight / 2
+
+                minY =
+                    -1 * collageHeight / 2
+
+                adjustment value min max foo =
+                    if value > max then
+                        value - foo
+                    else if value < min then
+                        value + foo
+                    else
+                        value
+            in
+                { transform | translation =
+                      Vec2
+                      (adjustment transform.translation.x minX maxX collageWidth)
+                      (adjustment transform.translation.y minY maxY collageHeight)
+                }
+
+        applyBoundary id boundary data =
+            case boundary of
+                WrapAroundBoundary ->
+                    { data | transformation = updateComponent id applyWrapAround data.transformation }
+                DestructionBoundary ->
+                    data
+    in
+        Dict.foldl applyBoundary data data.boundary
 
 
 updateComponent : EntityId -> (a -> a) -> (Dict.Dict EntityId a) -> (Dict.Dict EntityId a)
