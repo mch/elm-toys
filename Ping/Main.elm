@@ -37,23 +37,114 @@ type alias Model =
     , keysDown : Set.Set Keyboard.KeyCode
     }
 
-{- Keeps track of all data related to entities.
+
+{-| A collection which relates an EntityId to the data for a particular type of component.
+
+This and the functions below should perhaps be extracted to a module.
+
+The internal representation is currently a Dict, but an Array might be a better
+choice, along with some tools to help keep track of the next available EntityId,
+give that some entities won't last long and their spot in the arrays should be
+reused.
+
+-}
+type alias EntityComponents component = Dict.Dict EntityId component
+
+{-| Apply a function to one component of an entity, for each of a given list of entity ids.
+
+Takes care of extracting the component data and calling the provided function on
+it. If the component is missing, the function is not called.
+
+Example use, drawing a list of entities on a canvas.
+    drawEntity : Transformation -> Form
+    drawEntity t =
+        Collage.circle 20
+            |> filled green
+            |> move (t.translation.x, t.translation.y)
+
+    applyToEntity drawEntity [0, 1] data.transformation
+-}
+applyToEntity : (a -> result)
+              -> List EntityId
+              -> EntityComponents a
+              -> List result
+applyToEntity f ids a = []
+
+applyToEntity2 : (a -> b -> result)
+               -> List EntityId
+               -> EntityComponents a
+               -> EntityComponents b
+               -> List result
+applyToEntity2 f ids a b = []
+
+applyToEntity3 : (a -> b -> c -> result)
+               -> List EntityId
+               -> EntityComponents a
+               -> EntityComponents b
+               -> EntityComponents c
+               -> List result
+applyToEntity3 f ids a b c = []
+
+applyToEntity4 : (a -> b -> c -> d -> result)
+               -> List EntityId
+               -> EntityComponents a
+               -> EntityComponents b
+               -> EntityComponents c
+               -> EntityComponents d
+               -> List result
+applyToEntity4 f ids a b c d = []
+
+{-| Update the state for an entity.
+
+Extracts and unwraps the required component data, calling the given function on
+it.
+ -}
+updateEntity : EntityId -> (a -> data) -> EntityComponents a -> data -> data
+updateEntity id f a data = data
+
+updateEntity2 : EntityId
+              -> (a -> b -> data)
+              -> EntityComponents a
+              -> EntityComponents b
+              -> data
+              -> data
+updateEntity2 id f a b data = data
+
+updateEntity3 : EntityId
+              -> (a -> b -> c -> data)
+              -> EntityComponents a
+              -> EntityComponents b
+              -> EntityComponents c
+              -> data
+              -> data
+updateEntity3 id f a b c data = data
+
+updateEntity4 : EntityId
+              -> (a -> b -> c -> d -> data)
+              -> EntityComponents a
+              -> EntityComponents b
+              -> EntityComponents c
+              -> EntityComponents d
+              -> data
+              -> data
+updateEntity4 id f a b c d data = data
+
+{-| Keeps track of all data related to entities.
 
 Includes data for specific components and data for systems that relate multiple
 entities or components.
 
 -}
-
 type alias ComponentData =
     { nextEntityId : EntityId
-    , entityType : Dict.Dict EntityId EntityType
-    , transformation : Dict.Dict EntityId Transformation
-    , lifeCycle : Dict.Dict EntityId LifeCycle
-    , pingable : Dict.Dict EntityId Pingable
-    , boundingCircle : Dict.Dict EntityId Float
-    , path : Dict.Dict EntityId Path
-    , ping : Dict.Dict EntityId Ping
-    , boundary : Dict.Dict EntityId Boundary
+    , entityType : EntityComponents EntityType
+    , transformation : EntityComponents Transformation
+    , lifeCycle : EntityComponents LifeCycle
+    , pingable : EntityComponents Pingable
+    , boundingCircle : EntityComponents Float
+    , path : EntityComponents Path
+    , ping : EntityComponents Ping
+    , boundary : EntityComponents Boundary
 
     -- The following fields are for keeping track of how entities interact with each other.
     , newBoundingCircleOverlaps : List (EntityId, EntityId, EntityType, EntityType)
@@ -340,7 +431,7 @@ handleBoundaries data =
 
 
 -- A helper function for updating component data that unwraps the Maybe from the Dict.
-updateComponent : EntityId -> (a -> a) -> (Dict.Dict EntityId a) -> (Dict.Dict EntityId a)
+updateComponent : EntityId -> (a -> a) -> (EntityComponents a) -> (EntityComponents a)
 updateComponent id f d =
     Dict.update id (\item -> Maybe.map f item) d
 
@@ -807,6 +898,8 @@ handleKeyDown code model =
         model
 
 handleKeyUp code model =
+    -- TODO handle the case where multiple keys are down and only one is lifted,
+    -- so that the player still keeps moving.
     if code == 87 || code == 65 || code == 83 || code == 68 then
         { model | newComponentData = removePlayerVelocity model.newComponentData
         , keysDown = Set.remove code model.keysDown
