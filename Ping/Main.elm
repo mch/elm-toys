@@ -35,6 +35,7 @@ type alias Model =
     , lastClick : Maybe Vec2
     , newComponentData : ComponentData
     , keysDown : Set.Set Keyboard.KeyCode
+    , level : Int
     }
 
 
@@ -265,16 +266,16 @@ createPlayerEntity t id data =
         |> addComponent id transformation
         |> addComponent id (BoundaryComponent WrapAroundBoundary)
 
-createTargetEntity : Time -> EntityId -> ComponentData -> ComponentData
-createTargetEntity t id data =
+createTargetEntity : Vec2 -> Path -> Time -> EntityId -> ComponentData -> ComponentData
+createTargetEntity position path t id data =
     let
-        transformation = TransformationComponent (Transformation (Vec2 -50 -50) (Vec2 1 1) (Vec2 0 0))
+        transformation = TransformationComponent (Transformation position (Vec2 1 1) (Vec2 0 0))
 
         pingable = PingableComponent (Pingable 0)
     in
         data
         |> addComponent id transformation
-        |> addComponent id (PathComponent (Circle (Vec2 0 0) 100))
+        |> addComponent id (PathComponent path)
         |> addComponent id pingable
         |> addComponent id (BoundingCircleComponent 20)
 
@@ -335,7 +336,11 @@ createEntity t et f data =
 updateComponentData : Time -> Model -> Model
 updateComponentData t model =
     let
-        data = model.newComponentData
+        originalData =
+            model.newComponentData
+
+        data =
+            { originalData | events = [] }
 
         pingEntities = getEntitiesOfType PingEntity data
 
@@ -364,15 +369,43 @@ updateComponentData t model =
 
         dt = t - model.previousTick
 
-        updatedData = List.foldl (updatePingEntity dt) data pingEntities
-                     |> filterOldPings t
-                     |> filterDeadEntities t
-                     |> detectOverlaps
-                     |> processTargets t
-                     |> followPaths t dt
-                     |> handleBoundaries
+        updatedData =
+            List.foldl (updatePingEntity dt) data pingEntities
+                |> filterOldPings t
+                |> filterDeadEntities t
+                |> detectOverlaps
+                |> processTargets t
+                |> followPaths t dt
+                |> handleBoundaries
     in
         { model | newComponentData = updatedData }
+            |> processEvents t
+
+
+processEvents : Time -> Model -> Model
+processEvents time model =
+    let
+        nextLevel model =
+            { model | level = model.level + 1 }
+                |> createLevelEntities time
+
+        processEvent event model =
+            case event of
+                TargetDestroyed ->
+                    let
+                        remainingTargetCount =
+                            getEntitiesOfType TargetEntity model.newComponentData
+                                |> List.length
+
+                        updatedModel =
+                            { model | score = model.score + 1 }
+                    in
+                        if remainingTargetCount == 0 then
+                            nextLevel updatedModel
+                        else
+                            updatedModel
+    in
+        List.foldl processEvent model model.newComponentData.events
 
 
 handleBoundaries data =
@@ -639,20 +672,56 @@ init : ( Model, Cmd Msg )
 init =
     let
         empty =
-            Model 0 0 Nothing initComponentData Set.empty
+            Model 0 0 Nothing initComponentData Set.empty 0
     in
         ( empty, Cmd.none )
 
 
-{- Creates entities the first time the time is updated so that they have proper birth times. -}
+{- Creates the entities for a level. -}
+createLevelEntities : Time -> Model -> Model
+createLevelEntities t model =
+    if model.level == 0 then
+        {model | newComponentData = model.newComponentData
+             |> createEntity t PlayerEntity createPlayerEntity
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 0 -150) None)
+             |> createEntity t PingEntity (createPingEntity (Vec2 0 0) 10)
+        }
+    else if model.level == 1 then
+        {model | newComponentData = model.newComponentData
+             |> createEntity t PlayerEntity createPlayerEntity
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 0 -150) None)
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 0 150) None)
+        }
+    else if model.level == 2 then
+        {model | newComponentData = model.newComponentData
+             |> createEntity t PlayerEntity createPlayerEntity
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 0 -150) None)
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 0 150) None)
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 150 0) None)
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -150 0) None)
+        }
+    else if model.level == 3 then
+        {model | newComponentData = model.newComponentData
+             |> createEntity t PlayerEntity createPlayerEntity
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Circle (Vec2 0 0) 250))
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Circle (Vec2 0 0) 200))
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Circle (Vec2 0 0) 150))
+        }
+    else
+        {model | newComponentData = model.newComponentData
+             |> createEntity t PlayerEntity createPlayerEntity
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Circle (Vec2 0 0) 250))
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Ellipse (Vec2 -50 0) 200 150 0))
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Ellipse (Vec2 50 0) 200 150 0))
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Lissajous (Vec2 0 0) 2 3 300 250 0))
+        }
+
+
+{- Creates initial level entities after the first time tick so that they have sensible lifecycle info. -}
 createInitialEntities : Time -> Model -> Model
 createInitialEntities t model =
     if model.previousTick == 0 then
-        {model | newComponentData = model.newComponentData
-             |> createEntity t PlayerEntity createPlayerEntity
-             |> createEntity t TargetEntity createTargetEntity
-             |> createEntity t PingEntity (createPingEntity (Vec2 0 0) 10)
-        }
+        createLevelEntities t model
     else
         model
 
