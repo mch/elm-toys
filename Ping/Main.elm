@@ -63,37 +63,80 @@ Example use, drawing a list of entities on a canvas.
             |> filled green
             |> move (t.translation.x, t.translation.y)
 
-    applyToEntity drawEntity [0, 1] data.transformation
+    applyToEntity drawEntity data.transformation [0, 1]
 -}
-applyToEntity : (a -> result)
-              -> List EntityId
+applyToEntities : (a -> result)
               -> EntityComponents a
+              -> List EntityId
               -> List result
-applyToEntity f ids a = []
+applyToEntities f components ids =
+    let
+        applyToEntity components id =
+            let
+                component = Dict.get id components
+            in
+                Maybe.map f component
+    in
+        List.map (applyToEntity components) ids
+            |> List.filterMap identity
 
-applyToEntity2 : (a -> b -> result)
-               -> List EntityId
+applyToEntities2 : (a -> b -> result)
                -> EntityComponents a
                -> EntityComponents b
-               -> List result
-applyToEntity2 f ids a b = []
-
-applyToEntity3 : (a -> b -> c -> result)
                -> List EntityId
+               -> List result
+applyToEntities2 f a b ids =
+    let
+        applyToEntity a b id =
+            let
+                component1 = Dict.get id a
+                component2 = Dict.get id b
+            in
+                Maybe.map2 f component1 component2
+    in
+        List.map (applyToEntity a b) ids
+            |> List.filterMap identity
+
+applyToEntities3 : (a -> b -> c -> result)
                -> EntityComponents a
                -> EntityComponents b
                -> EntityComponents c
-               -> List result
-applyToEntity3 f ids a b c = []
-
-applyToEntity4 : (a -> b -> c -> d -> result)
                -> List EntityId
+               -> List result
+applyToEntities3 f a b c ids =
+    let
+        applyToEntity a b c id =
+            let
+                component1 = Dict.get id a
+                component2 = Dict.get id b
+                component3 = Dict.get id c
+            in
+                Maybe.map3 f component1 component2 component3
+    in
+        List.map (applyToEntity a b c) ids
+            |> List.filterMap identity
+
+applyToEntities4 : (a -> b -> c -> d -> result)
                -> EntityComponents a
                -> EntityComponents b
                -> EntityComponents c
                -> EntityComponents d
+               -> List EntityId
                -> List result
-applyToEntity4 f ids a b c d = []
+applyToEntities4 f a b c d ids =
+    let
+        applyToEntity a b c d id =
+            let
+                component1 = Dict.get id a
+                component2 = Dict.get id b
+                component3 = Dict.get id c
+                component4 = Dict.get id d
+            in
+                Maybe.map4 f component1 component2 component3 component4
+    in
+        List.map (applyToEntity a b c d) ids
+            |> List.filterMap identity
+
 
 {-| Update the state for an entity.
 
@@ -742,30 +785,30 @@ type Msg
 view : Model -> Html Msg
 view model =
     let
+        data = model.newComponentData
+
         pings =
             getEntitiesOfType PingEntity model.newComponentData
-                |> List.map (drawPing2 model.previousTick model.newComponentData)
-                |> List.filterMap identity
+                |> applyToEntities3 (drawPing model.previousTick)
+                   data.transformation data.ping data.lifeCycle
 
         targets =
             getEntitiesOfType TargetEntity model.newComponentData
-                |> List.map (drawTarget2 model.previousTick model.newComponentData)
-                |> List.filterMap identity
+                |> applyToEntities3 (drawTarget model.previousTick)
+                   data.transformation data.lifeCycle data.pingable
 
         player =
             getEntitiesOfType PlayerEntity model.newComponentData
-                |> List.map (drawPlayer model.newComponentData)
-                |> List.filterMap identity
+                |> applyToEntities2 drawPlayer data.transformation data.lifeCycle
 
         projectiles =
             getEntitiesOfType ProjectileEntity model.newComponentData
-                |> List.map (drawProjectile model.newComponentData)
-                |> List.filterMap identity
+                |> applyToEntities drawProjectile data.transformation
 
         explosions =
             getEntitiesOfType ExplosionEntity model.newComponentData
-                |> List.map (drawExplosion model.previousTick model.newComponentData)
-                |> List.filterMap identity
+                |> applyToEntities2 (drawExplosion model.previousTick)
+                   data.transformation data.lifeCycle
 
         gameBoard =
             collage collageWidth collageHeight (targets ++ player ++ pings ++ projectiles ++ explosions)
@@ -777,42 +820,18 @@ view model =
             ]
 
 
-drawPlayer data id =
-    let
-        t = Dict.get id data.transformation
-        l = Dict.get id data.lifeCycle
+drawPlayer t l =
+    Collage.circle 20
+        |> filled green
+        |> move (t.translation.x, t.translation.y)
 
-        draw t l =
-            Collage.circle 20
-                |> filled green
-                |> move (t.translation.x, t.translation.y)
-    in
-        Maybe.map2 draw t l
+drawTarget time t l p =
+    rect 20 20
+        |> filled (adjustAlpha blue (Ease.linear (1 - (time - p.pingTime) / 1000)))
+        |> move (t.translation.x, t.translation.y)
 
-drawTarget2 time data id =
-    let
-        t = Dict.get id data.transformation
-        l = Dict.get id data.lifeCycle
-        p = Dict.get id data.pingable
 
-        draw t l p =
-            rect 20 20
-                |> filled (adjustAlpha blue (Ease.linear (1 - (time - p.pingTime) / 1000)))
-                |> move (t.translation.x, t.translation.y)
-    in
-        Maybe.map3 draw t l p
-
--- This one just extracts component data... can this be generalized?
-drawPing2 time data id =
-    let
-        transform = Dict.get id data.transformation
-        ping = Dict.get id data.ping
-        lifeCycle = Dict.get id data.lifeCycle
-    in
-        Maybe.map3 (drawPing3 time) transform ping lifeCycle
-
--- This one does the actual drawing...
-drawPing3 time transform ping lifeCycle =
+drawPing time transform ping lifeCycle =
     let
         ttl = Maybe.withDefault (100000 * millisecond) lifeCycle.ttl
         easing = 1 - (time - lifeCycle.birthTime) / ttl
@@ -823,35 +842,21 @@ drawPing3 time transform ping lifeCycle =
                 |> outlined { defaultLine | color = (adjustAlpha ping.color fade) }
                 |> move (translation.x, translation.y)
 
+drawProjectile t =
+    Collage.circle 5
+        |> filled red
+        |> move (t.translation.x, t.translation.y)
 
-drawProjectile data id =
+drawExplosion time t lifeCycle =
     let
-        t = Dict.get id data.transformation
-
-        draw t =
-            Collage.circle 5
-                |> filled red
-                |> move (t.translation.x, t.translation.y)
+        ttl = Maybe.withDefault (1 * second) lifeCycle.ttl
+        dt = (time - lifeCycle.birthTime) / ttl
+        radius = 20 * (Ease.inOutBounce dt)
     in
-        Maybe.map draw t
+        Collage.circle radius
+            |> filled yellow
+            |> move (t.translation.x, t.translation.y)
 
-
-drawExplosion time data id =
-    let
-        t = Dict.get id data.transformation
-        lifeCycle = Dict.get id data.lifeCycle
-
-        draw t lifeCycle =
-            let
-                ttl = Maybe.withDefault (1 * second) lifeCycle.ttl
-                dt = (time - lifeCycle.birthTime) / ttl
-                radius = 20 * (Ease.inOutBounce dt)
-            in
-                Collage.circle radius
-                    |> filled yellow
-                    |> move (t.translation.x, t.translation.y)
-    in
-        Maybe.map2 draw t lifeCycle
 
 adjustAlpha : Color -> Float -> Color
 adjustAlpha c i =
@@ -1043,7 +1048,7 @@ clickSub =
 
 
 main =
-    program
+    Html.program
         { init = init
         , view = view
         , update = update
