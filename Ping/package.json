@@ -1,0 +1,17 @@
+{
+  "name": "Ping",
+  "version": "1.0.0",
+  "description": "A component-entity-system experiment",
+  "main": "index.js",
+  "dependencies": {
+    "elm": "^0.18.0-exp5",
+    "elm-format": "^0.8.1",
+    "elm-oracle": "^1.1.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}

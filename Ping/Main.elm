@@ -12,53 +12,700 @@ import Element exposing (toHtml)
 import Html exposing (..)
 import Keyboard
 import Mouse
+import Set
 import Task exposing (Task)
 import Time exposing (..)
 import Window
 
 
--- Internal Modules
-
-import Common exposing (..)
-import Components exposing (..)
-import Constants exposing (..)
-import Entities exposing (..)
-import EntityId exposing (..)
-import FadeableIntensity exposing (..)
-import Tween exposing (..)
-import Systems exposing (..)
+collageWidth =
+    800
 
 
-{- Components -}
+collageHeight =
+    600
 
-import Ping exposing (..)
-import Target exposing (..)
-
-
-{- If this was more of a component-entity-system (CES), a Ping or Target would
-      just be an integer, the entity id, and there would be components like a
-      drawable component which would contain data like shapes, colors, etc, a
-      motion component with speed, a system for modifying the drawable based on
-      the speed...
-
-   TODO
-   - Add functions to clear an entity from all component collections
-   - Make it easier to add an entity that involves multiple components
-   - Make it easier to add an entity that only involves one component, because of
-     the need to update nextEntityId
-   - Entity life cycle: how do we know when to delete a component that is finished?
--}
+type alias EntityId =
+    Int
 
 
 type alias Model =
-    { nextEntityId : EntityId
-    , componentData : ComponentData
-    , systemData : SystemData
-    , score : Int
+    { score : Int
     , previousTick : Time
-    , lastClick : Maybe Position
+    , lastClick : Maybe Vec2
+    , newComponentData : ComponentData
+    , keysDown : Set.Set Keyboard.KeyCode
+    , level : Int
     }
 
+
+{-| A collection which relates an EntityId to the data for a particular type of component.
+
+This and the functions below should perhaps be extracted to a module.
+
+The internal representation is currently a Dict, but an Array might be a better
+choice, along with some tools to help keep track of the next available EntityId,
+give that some entities won't last long and their spot in the arrays should be
+reused.
+
+-}
+type alias EntityComponents component = Dict.Dict EntityId component
+
+{-| Apply a function to one component of an entity, for each of a given list of entity ids.
+
+Takes care of extracting the component data and calling the provided function on
+it. If the component is missing, the function is not called.
+
+Example use, drawing a list of entities on a canvas.
+    drawEntity : Transformation -> Form
+    drawEntity t =
+        Collage.circle 20
+            |> filled green
+            |> move (t.translation.x, t.translation.y)
+
+    applyToEntity drawEntity data.transformation [0, 1]
+-}
+applyToEntities : (a -> result)
+              -> EntityComponents a
+              -> List EntityId
+              -> List result
+applyToEntities f components ids =
+    let
+        applyToEntity components id =
+            let
+                component = Dict.get id components
+            in
+                Maybe.map f component
+    in
+        List.map (applyToEntity components) ids
+            |> List.filterMap identity
+
+applyToEntities2 : (a -> b -> result)
+               -> EntityComponents a
+               -> EntityComponents b
+               -> List EntityId
+               -> List result
+applyToEntities2 f a b ids =
+    let
+        applyToEntity a b id =
+            let
+                component1 = Dict.get id a
+                component2 = Dict.get id b
+            in
+                Maybe.map2 f component1 component2
+    in
+        List.map (applyToEntity a b) ids
+            |> List.filterMap identity
+
+applyToEntities3 : (a -> b -> c -> result)
+               -> EntityComponents a
+               -> EntityComponents b
+               -> EntityComponents c
+               -> List EntityId
+               -> List result
+applyToEntities3 f a b c ids =
+    let
+        applyToEntity a b c id =
+            let
+                component1 = Dict.get id a
+                component2 = Dict.get id b
+                component3 = Dict.get id c
+            in
+                Maybe.map3 f component1 component2 component3
+    in
+        List.map (applyToEntity a b c) ids
+            |> List.filterMap identity
+
+applyToEntities4 : (a -> b -> c -> d -> result)
+               -> EntityComponents a
+               -> EntityComponents b
+               -> EntityComponents c
+               -> EntityComponents d
+               -> List EntityId
+               -> List result
+applyToEntities4 f a b c d ids =
+    let
+        applyToEntity a b c d id =
+            let
+                component1 = Dict.get id a
+                component2 = Dict.get id b
+                component3 = Dict.get id c
+                component4 = Dict.get id d
+            in
+                Maybe.map4 f component1 component2 component3 component4
+    in
+        List.map (applyToEntity a b c d) ids
+            |> List.filterMap identity
+
+
+{-| Update the state for an entity.
+
+Extracts and unwraps the required component data, calling the given function on
+it.
+ -}
+updateEntity : EntityId -> (a -> data) -> EntityComponents a -> data -> data
+updateEntity id f a data = data
+
+updateEntity2 : EntityId
+              -> (a -> b -> data)
+              -> EntityComponents a
+              -> EntityComponents b
+              -> data
+              -> data
+updateEntity2 id f a b data = data
+
+updateEntity3 : EntityId
+              -> (a -> b -> c -> data)
+              -> EntityComponents a
+              -> EntityComponents b
+              -> EntityComponents c
+              -> data
+              -> data
+updateEntity3 id f a b c data = data
+
+updateEntity4 : EntityId
+              -> (a -> b -> c -> d -> data)
+              -> EntityComponents a
+              -> EntityComponents b
+              -> EntityComponents c
+              -> EntityComponents d
+              -> data
+              -> data
+updateEntity4 id f a b c d data = data
+
+{-| Keeps track of all data related to entities.
+
+Includes data for specific components and data for systems that relate multiple
+entities or components.
+
+-}
+type alias ComponentData =
+    { nextEntityId : EntityId
+    , entityType : EntityComponents EntityType
+    , transformation : EntityComponents Transformation
+    , lifeCycle : EntityComponents LifeCycle
+    , pingable : EntityComponents Pingable
+    , boundingCircle : EntityComponents Float
+    , path : EntityComponents Path
+    , ping : EntityComponents Ping
+    , boundary : EntityComponents Boundary
+
+    -- The following fields are for keeping track of how entities interact with each other.
+    , newBoundingCircleOverlaps : List (EntityId, EntityId, EntityType, EntityType)
+    , existingBoundingCircleOverlaps : List (EntityId, EntityId, EntityType, EntityType)
+
+    -- A list of events that might be of interest to the higher level game, used
+    -- to update the score, change levels, and so on.
+    , events : List GameEvent
+    }
+
+initComponentData =
+    { nextEntityId = 0
+    , entityType = Dict.empty
+    , transformation = Dict.empty
+    , lifeCycle = Dict.empty
+    , pingable = Dict.empty
+    , boundingCircle = Dict.empty
+    , path = Dict.empty
+    , ping = Dict.empty
+    , boundary = Dict.empty
+
+    -- System data
+    , newBoundingCircleOverlaps = []
+    , existingBoundingCircleOverlaps = []
+
+    -- Game events
+    , events = []
+    }
+
+type NewComponent
+    = TransformationComponent Transformation
+    | LifeCycleComponent LifeCycle
+    | PingableComponent Pingable
+    | BoundingCircleComponent Float
+    | PathComponent Path
+    | PingComponent Ping
+    | BoundaryComponent Boundary
+
+type alias Transformation =
+    { translation : Vec2
+    , scale : Vec2
+    , rotate : Vec2
+    }
+
+type alias LifeCycle =
+    { birthTime : Time
+    , ttl : Maybe Time -- Number of ms to live, or Nothing to live forever.
+    }
+
+type alias Pingable =
+    { pingTime : Time
+    }
+
+type Path = None
+          | Circle Vec2 Float
+          | Ellipse Vec2 Float Float Float
+          | Lissajous Vec2 Float Float Float Float Float
+          | Hypotrochoid
+          | Velocity Vec2
+
+type alias Ping =
+    { radius : Float
+    , color : Color
+    }
+
+type Boundary = WrapAroundBoundary
+              | DestructionBoundary
+
+type GameEvent = TargetDestroyed
+
+type alias Vec2 = {x: Float, y: Float}
+
+type EntityType = PlayerEntity | TargetEntity | PingEntity | ProjectileEntity | ExplosionEntity
+
+setEntityType : EntityId -> EntityType -> ComponentData -> ComponentData
+setEntityType id entityType data =
+    { data | entityType = Dict.insert id entityType data.entityType }
+
+getEntitiesOfType : EntityType -> ComponentData -> List EntityId
+getEntitiesOfType entityType data =
+    Dict.filter (\k v -> v == entityType) data.entityType
+        |> Dict.keys
+
+incrementNextEntityId : ComponentData -> ComponentData
+incrementNextEntityId data =
+    { data | nextEntityId = data.nextEntityId + 1 }
+
+addComponent : EntityId -> NewComponent -> ComponentData -> ComponentData
+addComponent id comp data =
+    case comp of
+        TransformationComponent componentData ->
+            { data | transformation = Dict.insert id componentData data.transformation }
+
+        LifeCycleComponent componentData ->
+            { data | lifeCycle = Dict.insert id componentData data.lifeCycle }
+
+        PingableComponent componentData ->
+            { data | pingable = Dict.insert id componentData data.pingable }
+
+        BoundingCircleComponent radius ->
+            { data | boundingCircle = Dict.insert id radius data.boundingCircle }
+
+        PathComponent path ->
+            { data | path = Dict.insert id path data.path }
+
+        PingComponent ping ->
+            { data | ping = Dict.insert id ping data.ping }
+
+        BoundaryComponent boundary ->
+            { data | boundary = Dict.insert id boundary data.boundary }
+
+createPlayerEntity : Time -> EntityId -> ComponentData -> ComponentData
+createPlayerEntity t id data =
+    let
+        transformation = TransformationComponent (Transformation (Vec2 0 0) (Vec2 1 1) (Vec2 0 0))
+    in
+        data
+        |> addComponent id transformation
+        |> addComponent id (BoundaryComponent WrapAroundBoundary)
+
+createTargetEntity : Vec2 -> Path -> Time -> EntityId -> ComponentData -> ComponentData
+createTargetEntity position path t id data =
+    let
+        transformation = TransformationComponent (Transformation position (Vec2 1 1) (Vec2 0 0))
+
+        pingable = PingableComponent (Pingable 0)
+    in
+        data
+        |> addComponent id transformation
+        |> addComponent id (PathComponent path)
+        |> addComponent id pingable
+        |> addComponent id (BoundingCircleComponent 20)
+
+createPingEntity : Vec2 -> Time -> Time -> EntityId -> ComponentData -> ComponentData
+createPingEntity position ttl t id data =
+    data
+        |> addComponent id (BoundingCircleComponent 10)
+        |> addComponent id (PingComponent (Ping 10 red))
+        |> addComponent id (TransformationComponent (Transformation position (Vec2 1 1) (Vec2 0 0)))
+        |> addComponent id (LifeCycleComponent (LifeCycle t (Just (ttl * second))))
+
+
+createProjectileEntity : Vec2 -> Vec2 -> Time -> EntityId -> ComponentData -> ComponentData
+createProjectileEntity position velocity time id data =
+    data
+        |> addComponent id (BoundingCircleComponent 5)
+        |> addComponent id (TransformationComponent (Transformation position (Vec2 1 1) (Vec2 0 0)))
+        |> addComponent id (PathComponent (Velocity velocity))
+        |> addComponent id (BoundaryComponent DestructionBoundary)
+
+
+createExplosionEntity : Vec2 -> Time -> EntityId -> ComponentData -> ComponentData
+createExplosionEntity position time id data =
+    data
+        |> addComponent id (BoundingCircleComponent 10)
+        |> addComponent id (TransformationComponent (Transformation position (Vec2 0 0) (Vec2 0 0)))
+        |> addComponent id (LifeCycleComponent (LifeCycle time (Just 1000)))
+
+
+updatePingEntity : Time -> EntityId -> ComponentData -> ComponentData
+updatePingEntity dt id data =
+    let
+        update radius =
+            Maybe.map (\r -> r + dt / 10) radius
+
+        updatePing ping =
+            Maybe.map (\p -> { p | radius = p.radius + dt / 10 }) ping
+    in
+        { data | boundingCircle = Dict.update id update data.boundingCircle
+        , ping = Dict.update id updatePing data.ping }
+
+type alias EntityCreator = (Time -> EntityId -> ComponentData -> ComponentData)
+
+createEntity : Time -> EntityType -> EntityCreator -> ComponentData -> ComponentData
+createEntity t et f data =
+    let
+        id = data.nextEntityId
+    in
+        -- Set up the defaults before calling the entity creator, then it can
+        -- modify them if it needs to.
+        data
+            |> addComponent id (LifeCycleComponent (LifeCycle t Nothing))
+            |> setEntityType id et
+            |> f t id
+            |> incrementNextEntityId
+
+
+updateComponentData : Time -> Model -> Model
+updateComponentData t model =
+    let
+        originalData =
+            model.newComponentData
+
+        data =
+            { originalData | events = [] }
+
+        pingEntities = getEntitiesOfType PingEntity data
+
+        filterOldPings t data =
+            let
+                playAreaRadius = 1200
+                oldPings = Dict.filter (\id radius -> radius > playAreaRadius) data.boundingCircle
+                         |> Dict.keys
+            in
+                deleteEntities oldPings data
+
+        filterDeadEntities t data =
+            let
+                entities = Dict.filter (\id lifeCycle ->
+                                       case lifeCycle.ttl of
+                                           Nothing -> False
+                                           Just ttl ->
+                                               if t > lifeCycle.birthTime + ttl then
+                                                   True
+                                               else
+                                                   False
+                                       ) data.lifeCycle
+                           |> Dict.keys
+            in
+                deleteEntities entities data
+
+        dt = t - model.previousTick
+
+        updatedData =
+            List.foldl (updatePingEntity dt) data pingEntities
+                |> filterOldPings t
+                |> filterDeadEntities t
+                |> detectOverlaps
+                |> processTargets t
+                |> followPaths t dt
+                |> handleBoundaries
+    in
+        { model | newComponentData = updatedData }
+            |> processEvents t
+
+
+processEvents : Time -> Model -> Model
+processEvents time model =
+    let
+        nextLevel model =
+            { model | level = model.level + 1 }
+                |> createLevelEntities time
+
+        processEvent event model =
+            case event of
+                TargetDestroyed ->
+                    let
+                        remainingTargetCount =
+                            getEntitiesOfType TargetEntity model.newComponentData
+                                |> List.length
+
+                        updatedModel =
+                            { model | score = model.score + 1 }
+                    in
+                        if remainingTargetCount == 0 then
+                            nextLevel updatedModel
+                        else
+                            updatedModel
+    in
+        List.foldl processEvent model model.newComponentData.events
+
+
+handleBoundaries data =
+    let
+        applyWrapAround transform =
+            let
+                maxX =
+                    collageWidth / 2
+
+                minX =
+                    -1 * collageWidth / 2
+
+                maxY =
+                    collageHeight / 2
+
+                minY =
+                    -1 * collageHeight / 2
+
+                adjustment value min max foo =
+                    if value > max then
+                        value - foo
+                    else if value < min then
+                        value + foo
+                    else
+                        value
+            in
+                { transform | translation =
+                      Vec2
+                      (adjustment transform.translation.x minX maxX collageWidth)
+                      (adjustment transform.translation.y minY maxY collageHeight)
+                }
+
+        applyDestruction id data =
+            let
+                checkBounds t =
+                    if t.translation.x < -1 * collageWidth / 2
+                        || t.translation.x > collageWidth / 2
+                        || t.translation.y < -1 * collageHeight / 2
+                        || t.translation.y > collageHeight / 2 then
+                        deleteEntities [id] data
+                    else
+                        data
+            in
+                Dict.get id data.transformation
+                    |> Maybe.map checkBounds
+                    |> Maybe.withDefault data
+
+        applyBoundary id boundary data =
+            case boundary of
+                WrapAroundBoundary ->
+                    { data | transformation = updateComponent id applyWrapAround data.transformation }
+                DestructionBoundary ->
+                    applyDestruction id data
+    in
+        Dict.foldl applyBoundary data data.boundary
+
+
+-- A helper function for updating component data that unwraps the Maybe from the Dict.
+updateComponent : EntityId -> (a -> a) -> (EntityComponents a) -> (EntityComponents a)
+updateComponent id f d =
+    Dict.update id (\item -> Maybe.map f item) d
+
+
+-- Finds overlapping entities by checking their bounding circles, and stores the results.
+detectOverlaps : ComponentData -> ComponentData
+detectOverlaps data =
+    let
+        entities =
+            Dict.keys data.boundingCircle
+
+        lookupComponents id =
+            Maybe.map3 (\et t radius -> (id, et, t.translation, radius))
+                (Dict.get id data.entityType)
+                (Dict.get id data.transformation)
+                (Dict.get id data.boundingCircle)
+
+        -- Sort the list of bounding circles by id so that we can skip comparing
+        -- the same items twice
+        circleComparitor (id1, _, _, _) (id2, _, _, _) =
+            if id1 == id2 then
+                EQ
+            else
+                if id1 > id2 then
+                     GT
+                 else
+                     LT
+
+        circles =
+            List.filterMap lookupComponents entities
+                |> List.sortWith circleComparitor
+
+        -- This solution is a bit sub-optimal because it traverses the list
+        -- twice, but the number of items is small for now, so let's roll with
+        -- it.
+        overlaps =
+            List.concatMap (\c1 -> List.map (\c2 -> compareCircles c1 c2) circles) circles
+                |> List.filterMap identity
+
+        newOverlaps =
+            List.filter (\x -> not (List.member x data.existingBoundingCircleOverlaps)) overlaps
+
+    in
+        { data | newBoundingCircleOverlaps = newOverlaps
+        , existingBoundingCircleOverlaps = overlaps
+        }
+
+compareCircles (id1, et1, t1, r1) (id2, et2, t2, r2) =
+    if id1 == id2 || id1 > id2 then
+        Nothing
+    else
+        let
+            (dx, dy) =
+                (abs (t2.x - t1.x), abs (t2.y - t1.y))
+
+            d =
+                sqrt (dx ^ 2 + dy ^ 2)
+        in
+            -- Currently this is only when the outer edges intersect. If one
+            -- circle is fully within another, that is not considered an
+            -- intersection, because that is not what we want for pings.
+            if r1 + r2 > d && r2 < d + r1 && r1 < d + r2 then
+                Just (id1, id2, et1, et2)
+            else
+                Nothing
+
+
+-- Processes targets, creating new reflected pings if they were just pinged,
+-- moving them, handling damage from weapons, etc.
+processTargets : Time -> ComponentData -> ComponentData
+processTargets t data =
+    let
+        entities = getEntitiesOfType TargetEntity data
+    in
+        List.foldl (processTarget t) data entities
+
+processTarget time id data =
+    let
+        transform = Dict.get id data.transformation
+        path = Dict.get id data.path
+        lifeCycle = Dict.get id data.lifeCycle
+    in
+        Maybe.withDefault data (Maybe.map3 (processTarget2 id time data) transform path lifeCycle)
+
+processTarget2 id time data transform path lifeCycle =
+    let
+        handleOverlaps translation (id1, id2, et1, et2) data =
+            if (id1 == id || id2 == id) && (et1 == PingEntity || et2 == PingEntity) then
+                -- It would be cool if the initial opacity of the ping related
+                -- to the current opacity of the ping that caused this
+                -- reflection... But the original pings don't fade very fast
+                -- right now.
+                let
+                    newPingId = data.nextEntityId
+                in
+                    createEntity time PingEntity (createPingEntity translation 1) data
+                        |> (\data -> { data | boundingCircle = Dict.remove newPingId data.boundingCircle })
+                        |> updatePingTime id time
+            else if (id1 == id || id2 == id) && (et1 == ProjectileEntity || et2 == ProjectileEntity) then
+                let
+                    newId = data.nextEntityId
+                in
+                    createEntity time ExplosionEntity (createExplosionEntity translation) data
+                        |> deleteEntities [id1, id2] -- One hit kill for now
+                        |> (\data -> { data | events = TargetDestroyed :: data.events } )
+            else
+                data
+    in
+        List.foldl (handleOverlaps transform.translation) data data.newBoundingCircleOverlaps
+
+
+followPaths : Time -> Time -> ComponentData -> ComponentData
+followPaths t dt data =
+    let
+        paths = Dict.keys data.path
+
+        update id data =
+            let
+                path = Dict.get id data.path
+                transform = Dict.get id data.transformation
+                lifeCycle = Dict.get id data.lifeCycle
+            in
+                Maybe.withDefault data (Maybe.map3 (updateTransformFollowingPath id t dt data) path transform lifeCycle)
+    in
+        List.foldl update data paths
+
+
+updateTransformFollowingPath id time dt data path transform lifeCycle =
+    case path of
+        None ->
+            data
+        Circle centre radius ->
+            let
+                angle =
+                    (time - lifeCycle.birthTime) / 1000
+
+                translation =
+                    Vec2 (centre.x + radius * (cos angle))
+                        (centre.y + radius * (sin angle))
+            in
+                { data | transformation = updateComponent id (\t -> { t | translation = translation }) data.transformation }
+
+        Ellipse centre major minor phi ->
+            let
+                angle =
+                    (time - lifeCycle.birthTime) / 1000
+
+                translation =
+                    Vec2 (centre.x + major * (cos angle) * (cos phi) - minor * (sin angle) * (sin phi))
+                        (centre.y + major * (cos angle) * (sin phi) - minor * (sin angle) * (cos phi))
+            in
+                { data | transformation = updateComponent id (\t -> { t | translation = translation }) data.transformation }
+
+        Lissajous centre kx ky major minor phi->
+            let
+                angle =
+                    (time - lifeCycle.birthTime) / 1000
+
+                majorAngle =
+                    kx * angle
+
+                minorAngle =
+                    ky * angle
+
+                translation =
+                    Vec2 (centre.x + major * (cos majorAngle) * (cos phi) - minor * (sin minorAngle) * (sin phi))
+                        (centre.y + major * (cos majorAngle) * (sin phi) - minor * (sin minorAngle) * (cos phi))
+            in
+                { data | transformation = updateComponent id (\t -> { t | translation = translation }) data.transformation }
+
+        Hypotrochoid ->
+            data
+        Velocity velocity ->
+            let
+                updateTransform t =
+                    { t | translation = Vec2 (t.translation.x + velocity.x * dt) (t.translation.y + velocity.y * dt) }
+            in
+                { data | transformation = updateComponent id (\t -> updateTransform t) data.transformation}
+
+
+updatePingTime id t data =
+    { data | pingable = updateComponent id (\p -> { p | pingTime = t }) data.pingable }
+
+
+-- Removes all components for each entity in the list.
+deleteEntities : List EntityId -> ComponentData -> ComponentData
+deleteEntities entities data =
+    let
+        -- How do we ensure this gets updated if a new component is added?
+        deleteEntity id data =
+            { data | entityType = Dict.remove id data.entityType
+            , transformation = Dict.remove id data.transformation
+            , lifeCycle = Dict.remove id data.lifeCycle
+            , pingable = Dict.remove id data.pingable
+            , boundingCircle = Dict.remove id data.boundingCircle
+            }
+    in
+        List.foldl deleteEntity data entities
 
 
 {- Initialize the model and send initial commands. -}
@@ -68,13 +715,58 @@ init : ( Model, Cmd Msg )
 init =
     let
         empty =
-            Model 0 Components.init Systems.init 0 0 Nothing
+            Model 0 0 Nothing initComponentData Set.empty 0
     in
-        ( { empty | componentData = createTarget ( 100, 100 ) blue empty.componentData }
-        , Cmd.none
-        )
+        ( empty, Cmd.none )
 
 
+{- Creates the entities for a level. -}
+createLevelEntities : Time -> Model -> Model
+createLevelEntities t model =
+    if model.level == 0 then
+        {model | newComponentData = model.newComponentData
+             |> createEntity t PlayerEntity createPlayerEntity
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 0 -150) None)
+             |> createEntity t PingEntity (createPingEntity (Vec2 0 0) 10)
+        }
+    else if model.level == 1 then
+        {model | newComponentData = model.newComponentData
+             |> createEntity t PlayerEntity createPlayerEntity
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 0 -150) None)
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 0 150) None)
+        }
+    else if model.level == 2 then
+        {model | newComponentData = model.newComponentData
+             |> createEntity t PlayerEntity createPlayerEntity
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 0 -150) None)
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 0 150) None)
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 150 0) None)
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -150 0) None)
+        }
+    else if model.level == 3 then
+        {model | newComponentData = model.newComponentData
+             |> createEntity t PlayerEntity createPlayerEntity
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Circle (Vec2 0 0) 250))
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Circle (Vec2 0 0) 200))
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Circle (Vec2 0 0) 150))
+        }
+    else
+        {model | newComponentData = model.newComponentData
+             |> createEntity t PlayerEntity createPlayerEntity
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Circle (Vec2 0 0) 250))
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Ellipse (Vec2 -50 0) 200 150 0))
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Ellipse (Vec2 50 0) 200 150 0))
+             |> createEntity t TargetEntity (createTargetEntity (Vec2 -50 -50) (Lissajous (Vec2 0 0) 2 3 300 250 0))
+        }
+
+
+{- Creates initial level entities after the first time tick so that they have sensible lifecycle info. -}
+createInitialEntities : Time -> Model -> Model
+createInitialEntities t model =
+    if model.previousTick == 0 then
+        createLevelEntities t model
+    else
+        model
 
 {- Messages that can come into the update function. -}
 
@@ -83,6 +775,7 @@ type Msg
     = Tick Time
     | Click ( Float, Float )
     | KeyDown Keyboard.KeyCode
+    | KeyUp Keyboard.KeyCode
 
 
 
@@ -92,25 +785,33 @@ type Msg
 view : Model -> Html Msg
 view model =
     let
+        data = model.newComponentData
+
         pings =
-            List.map
-                (drawPing model.componentData.fades)
-                (Dict.toList model.componentData.pings)
+            getEntitiesOfType PingEntity model.newComponentData
+                |> applyToEntities3 (drawPing model.previousTick)
+                   data.transformation data.ping data.lifeCycle
 
         targets =
-            List.map
-                (drawTarget model.componentData.fades)
-                (Dict.toList model.componentData.targets)
-
-        lasers =
-            List.map drawLaser (Dict.toList model.componentData.lasers)
+            getEntitiesOfType TargetEntity model.newComponentData
+                |> applyToEntities3 (drawTarget model.previousTick)
+                   data.transformation data.lifeCycle data.pingable
 
         player =
-            Collage.circle 20
-                |> filled green
+            getEntitiesOfType PlayerEntity model.newComponentData
+                |> applyToEntities2 drawPlayer data.transformation data.lifeCycle
+
+        projectiles =
+            getEntitiesOfType ProjectileEntity model.newComponentData
+                |> applyToEntities drawProjectile data.transformation
+
+        explosions =
+            getEntitiesOfType ExplosionEntity model.newComponentData
+                |> applyToEntities2 (drawExplosion model.previousTick)
+                   data.transformation data.lifeCycle
 
         gameBoard =
-            collage collageWidth collageHeight (pings ++ targets ++ lasers ++ [ player ])
+            collage collageWidth collageHeight (targets ++ player ++ pings ++ projectiles ++ explosions)
                 |> toHtml
     in
         div []
@@ -119,33 +820,42 @@ view model =
             ]
 
 
-drawPing fades ( id, ping ) =
+drawPlayer t l =
+    Collage.circle 20
+        |> filled green
+        |> move (t.translation.x, t.translation.y)
+
+drawTarget time t l p =
+    rect 20 20
+        |> filled (adjustAlpha blue (Ease.linear (1 - (time - p.pingTime) / 1000)))
+        |> move (t.translation.x, t.translation.y)
+
+
+drawPing time transform ping lifeCycle =
     let
-        fade =
-            Dict.get id fades
-                |> Maybe.map .intensity
-                |> Maybe.withDefault 1
+        ttl = Maybe.withDefault (100000 * millisecond) lifeCycle.ttl
+        easing = 1 - (time - lifeCycle.birthTime) / ttl
+        fade = Ease.linear easing
+        translation = transform.translation
     in
-        Collage.circle ping.radius
-            |> outlined { defaultLine | color = (adjustAlpha ping.color fade) }
-            |> move ping.position
+            Collage.circle ping.radius
+                |> outlined { defaultLine | color = (adjustAlpha ping.color fade) }
+                |> move (translation.x, translation.y)
 
+drawProjectile t =
+    Collage.circle 5
+        |> filled red
+        |> move (t.translation.x, t.translation.y)
 
-drawTarget fades ( id, target ) =
+drawExplosion time t lifeCycle =
     let
-        fade =
-            Dict.get id fades
-                |> Maybe.map .intensity
-                |> Maybe.withDefault 1
+        ttl = Maybe.withDefault (1 * second) lifeCycle.ttl
+        dt = (time - lifeCycle.birthTime) / ttl
+        radius = 20 * (Ease.inOutBounce dt)
     in
-        rect target.size target.size
-            |> filled (adjustAlpha target.color fade)
-            |> move target.position
-
-
-drawLaser ( id, laser ) =
-    segment laser.start laser.end
-        |> traced defaultLine
+        Collage.circle radius
+            |> filled yellow
+            |> move (t.translation.x, t.translation.y)
 
 
 adjustAlpha : Color -> Float -> Color
@@ -171,8 +881,8 @@ update action model =
             case action of
                 Tick t ->
                     model
+                        |> createInitialEntities t
                         |> updateComponentData t
-                        |> runSystems t
                         |> updateFromInput t
                         |> updatePreviousTime t
 
@@ -180,7 +890,10 @@ update action model =
                     handleClick px py model
 
                 KeyDown code ->
-                    handleKey code model
+                    handleKeyDown code model
+
+                KeyUp code ->
+                    handleKeyUp code model
     in
         ( newModel, Cmd.none )
 
@@ -190,56 +903,139 @@ updateFromInput time model =
     case model.lastClick of
         Just position ->
             { model
-                | componentData = createLaser time ( 0.0, 0.0 ) position model.componentData
-                , lastClick = Nothing
+                | lastClick = Nothing
+                , newComponentData = shootProjectile model.previousTick position model.newComponentData
             }
 
         Nothing ->
             model
 
+getPlayerPosition data =
+    List.head (getEntitiesOfType PlayerEntity data)
+        |> Maybe.andThen (\id -> Dict.get id data.transformation)
+        |> Maybe.map (\t -> t.translation)
+        |> Maybe.withDefault (Vec2 0 0)
 
-updateComponentData : Time -> Model -> Model
-updateComponentData t model =
+shootProjectile time position data =
     let
-        dt =
-            (t - model.previousTick) / Time.second
+        playerPosition =
+            getPlayerPosition data
+
+        v =
+            Vec2 (position.x - playerPosition.x) (position.y - playerPosition.y)
+
+        magnitude =
+            sqrt ( v.x ^ 2 + v.y ^ 2)
+
+        normalized =
+            Vec2 (v.x / magnitude) (v.y / magnitude)
+
+        projectileSpeed =
+            1.0
+
+        velocity =
+            Vec2 (normalized.x * projectileSpeed) (normalized.y * projectileSpeed)
     in
-        { model | componentData = updateComponents t dt model.componentData }
-
-
-runSystems : Time -> Model -> Model
-runSystems t model =
-    let
-        dt =
-            (t - model.previousTick) / Time.second
-
-        ( updatedSystems, updatedComponents ) =
-            Systems.runSystems t dt ( model.systemData, model.componentData )
-    in
-        { model
-            | componentData = updatedComponents
-            , systemData = updatedSystems
-        }
-
+        createEntity time ProjectileEntity (createProjectileEntity playerPosition velocity) data
 
 handleClick : Float -> Float -> Model -> Model
 handleClick px py model =
-    { model | lastClick = Just ( px, py ) }
+    { model | lastClick = Just ( Vec2 px py ) }
 
 
-handleKey code model =
+handleKeyDown code model =
+    -- When the key goes down, set the player's Path to a Velocity, and when it
+    -- goes up, remove that component.
+    --
+    -- Add something for boundary conditions, e.g. the player's boundary
+    -- condition might be to slow down as it approaches the boundary, while a
+    -- projectiles might be to continue out and then have it's entity deleted.
+    -- The player might also wrap around to the other side.
+
+    if not (Set.member code model.keysDown) then
     -- e: 69
     -- w: 87
     -- a: 65
     -- s: 83
     -- d: 68
-    if (Debug.log "keycode:" code) == 69 then
-        { model
-            | componentData = createFadingPing model.componentData model.previousTick ( 0, 0 ) red 30000
-        }
+        if (Debug.log "keycode:" code) == 69 then
+            { model | newComponentData = pingPlayer model.previousTick model.newComponentData
+            , keysDown = Set.insert code model.keysDown
+            }
+        else if code == 87 || code == 65 || code == 83 || code == 68 then
+            { model | newComponentData = setPlayerVelocity code model.newComponentData
+            , keysDown = Set.insert code model.keysDown
+            }
+        else
+            model
     else
         model
 
+handleKeyUp code model =
+    -- TODO handle the case where multiple keys are down and only one is lifted,
+    -- so that the player still keeps moving.
+    if code == 87 || code == 65 || code == 83 || code == 68 then
+        { model | newComponentData = removePlayerVelocity model.newComponentData
+        , keysDown = Set.remove code model.keysDown
+        }
+    else
+        { model | keysDown = Set.remove code model.keysDown }
+
+pingPlayer time data =
+    let
+        playerPosition =
+            getPlayerPosition data
+    in
+        createEntity time PingEntity (createPingEntity playerPosition 10) data
+
+setPlayerVelocity code data =
+    let
+        speed = 1
+
+        xVelocity =
+            if code == 65 then
+                -speed
+            else if code == 68 then
+                speed
+            else
+                0
+
+        yVelocity =
+            if code == 83 then
+                -speed
+            else if code == 87 then
+                speed
+            else
+                0
+
+        playerId =
+            List.head (getEntitiesOfType PlayerEntity data)
+
+        existingPath =
+            Maybe.andThen (\id -> Dict.get id data.path) playerId
+                |> Maybe.withDefault (Velocity (Vec2 0 0))
+
+        newPath =
+            case existingPath of
+                Velocity v ->
+                    Velocity (Vec2 (v.x + xVelocity) (v.y + yVelocity))
+                _ ->
+                    Velocity (Vec2 xVelocity yVelocity)
+
+        updatePlayer id =
+            addComponent id (PathComponent newPath) data
+    in
+        Maybe.withDefault data (Maybe.map updatePlayer playerId)
+
+
+removePlayerVelocity data =
+    let
+        playerId = List.head (getEntitiesOfType PlayerEntity data)
+
+        removePath id =
+            { data | path = Dict.remove id data.path }
+    in
+        Maybe.withDefault data (Maybe.map removePath playerId)
 
 mouseToCollage : ( Int, Int ) -> ( Int, Int ) -> ( Float, Float )
 mouseToCollage ( mx, my ) ( wx, wy ) =
@@ -252,7 +1048,7 @@ clickSub =
 
 
 main =
-    program
+    Html.program
         { init = init
         , view = view
         , update = update
@@ -262,5 +1058,6 @@ main =
                     [ AnimationFrame.times Tick
                     , clickSub
                     , Keyboard.downs KeyDown
+                    , Keyboard.ups KeyUp
                     ]
         }
